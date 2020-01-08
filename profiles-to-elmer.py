@@ -82,7 +82,7 @@ def spatial_join(target_shapefile,join_shapefile,keep_columns):
 
 def SendToSQL(db_table_name,db_schema,df,db_server_instance,db_name,db_chunks):
 	conn_string = 'mssql+pyodbc://{}/{}?trusted_connection=yes&driver=ODBC+Driver+17+for+SQL+Server'.format(db_server_instance, db_name)
-	engine = sqlalchemy.create_engine(conn_string)
+	engine = sqlalchemy.create_engine(conn_string,fast_executemany=True)
 	df.to_sql(db_table_name, con=engine, schema=db_schema, if_exists='replace',chunksize=db_chunks)
 
 ##################################################################################################
