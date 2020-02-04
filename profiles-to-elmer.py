@@ -384,10 +384,10 @@ tbl_dtypes = {'year': sqlalchemy.types.INTEGER(),
              'sub_category':sqlalchemy.types.VARCHAR(length=100),
              'subject':sqlalchemy.types.VARCHAR(length=100),
              'census_type':sqlalchemy.types.VARCHAR(length=10),
-             'estimate': sqlalchemy.types.NUMERIC(scale=2,asdecimal=True),
-             'margin_of_error': sqlalchemy.types.NUMERIC(scale=2,asdecimal=True),
-             'percent': sqlalchemy.types.NUMERIC(scale=2,asdecimal=True),
-             'percent_margin_of_error': sqlalchemy.types.NUMERIC(scale=2,asdecimal=True)
+             'estimate': sqlalchemy.types.NUMERIC(precision=18,scale=2,asdecimal=True),
+             'margin_of_error': sqlalchemy.types.NUMERIC(precision=18,scale=2,asdecimal=True),
+             'percent': sqlalchemy.types.NUMERIC(precision=18,scale=2,asdecimal=True),
+             'percent_margin_of_error': sqlalchemy.types.NUMERIC(precision=18,scale=2,asdecimal=True)
              }
 
 SendToSQL('census_data','stg',final_df,'AWS-PROD-SQL\\Coho','Elmer',10000,tbl_dtypes)

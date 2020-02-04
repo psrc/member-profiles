@@ -1,0 +1,638 @@
+---
+output: 
+  html_document:
+    theme: cerulean
+    toc: false
+  runtime: shiny
+---
+```{r, echo=FALSE, out.width = '30%', fig.align = "right"}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE)
+include_graphics("https://www.psrc.org/sites/default/files/psrclogo_0.png") 
+```
+
+```{r database_connections, include=FALSE}
+library(odbc)
+library(DBI)
+library(data.table)
+library(stringr)
+library(DT)
+library(shiny)
+library(ggplot2)
+library(scales)
+library(plotly)
+library(foreign)
+library(leaflet)
+library(sp)
+library(rgdal)
+
+server_name <- "AWS-PROD-SQL\\COHO"
+database_name <- "Elmer"
+
+# Get the lat/lon for places to have as center points of maps
+city_points <- setDT(read.dbf('W:\\geodata\\political\\citypt.dbf', as.is = FALSE))
+city_points$zoom <- 12
+king <- as.data.table(list(CITYNAME="King County",COUNT=1,FIRST_CNTY="King",X_COORD=0,Y_COORD=0,lat=47.439,long=-121.879, zoom = 9))
+kitsap <- as.data.table(list(CITYNAME="Kitsap County",COUNT=1,FIRST_CNTY="Kitsap",X_COORD=0,Y_COORD=0,lat=47.591,long=-122.64, zoom = 9))
+pierce <- as.data.table(list(CITYNAME="Pierce County",COUNT=1,FIRST_CNTY="Pierce",X_COORD=0,Y_COORD=0,lat=47.031,long=-122.254, zoom = 9))
+snohomish <- as.data.table(list(CITYNAME="Snohomish County",COUNT=1,FIRST_CNTY="Snohomish",X_COORD=0,Y_COORD=0,lat=48.015,long=-121.77, zoom = 9))
+
+city_points <- rbind(city_points,king, kitsap,pierce,snohomish)
+
+# Add County to the name for the counties to avoid overlap with place names 
+city_points$FIRST_CNTY <- as.character(city_points$FIRST_CNTY)
+city_points$FIRST_CNTY[city_points$FIRST_CNTY == "King"] <- "King County"
+city_points$FIRST_CNTY[city_points$FIRST_CNTY == "Kitsap"] <- "Kitsap County"
+city_points$FIRST_CNTY[city_points$FIRST_CNTY == "Pierce"] <- "Pierce County"
+city_points$FIRST_CNTY[city_points$FIRST_CNTY == "Snohomish"] <- "Snohomish County"
+
+# Census Tract Shapefile
+tract.shape <- readOGR(dsn='c:/shapefiles',layer='tract_2010_no_water_wgs1984')
+
+find_city_coordinates <- function(wrk_nm, wrk_typ) {
+  
+  wrk_coord <- as.numeric(city_points[CITYNAME == wrk_nm,sum(get(wrk_typ))])
+  return(wrk_coord)
+  
+}
+
+find_city_county <- function(wrk_nm) {
+  
+  wrk_cnty <- as.character(city_points[CITYNAME == wrk_nm,FIRST_CNTY])
+  return(wrk_cnty)
+  
+}
+
+table_from_db <- function(srv_nm,db_nm,tbl_nm) {
+  
+  db_con <- dbConnect(odbc::odbc(),
+                      driver = "SQL Server",
+                      server = srv_nm,
+                      database = db_nm,
+                      trusted_connection = "yes"
+  )
+  
+  w_tbl <- dbReadTable(db_con,SQL(tbl_nm))
+  odbc::dbDisconnect(db_con)
+  setDT(w_tbl)
+  return(w_tbl)
+}
+
+table_cleanup <- function(w_tbl,curr_cols,upd_cols) {
+  w_tbl <-w_tbl[,..curr_cols]
+  setnames(w_tbl,upd_cols)  
+  return(w_tbl)
+}
+
+create_commute_tbl <- function(wrk_tbl,wrk_plc,wrk_yr) {
+  tbl <- wrk_tbl[place_name %in% wrk_plc & year %in% wrk_yr]
+  tbl <- tbl[census_table %in% "B08303"]
+  cols <- c("variable_description","estimate","margin_of_error")
+  tbl <-table_cleanup(tbl, c("variable_description","estimate","margin_of_error"), c("Travel Time (minutes)","People","Margin of Error"))
+  total_commuters <- as.integer(tbl[`Travel Time (minutes)` == "Total",sum(People)])
+  tbl$`Percent of Total Commuters` <- tbl$People / total_commuters
+  tbl <- tbl[`Travel Time (minutes)` != "Total"]
+  
+  # Set the order of the Time Buckets
+  wrk_ord <- c("Less than 5 minutes", "5 to 9 minutes","10 to 14 minutes","15 to 19 minutes","20 to 24 minutes","25 to 29 minutes","30 to 34 minutes","35 to 39 minutes","40 to 44 minutes","45 to 59 minutes","60 to 89 minutes","90 or more minutes")
+  tbl$`Travel Time (minutes)` <- factor(tbl$`Travel Time (minutes)`, levels = wrk_ord)
+  tbl <- tbl[order(`Travel Time (minutes)`),]
+  
+  return(tbl)
+}
+
+create_modeshare_tbl <- function(wrk_tbl,wrk_plc,wrk_yr) {
+
+  tbl <- wrk_tbl[place_name %in% wrk_plc & year %in% wrk_yr]
+  tbl <- tbl[variable_category %in% "COMMUTING TO WORK"]
+  cols <- c("variable_description","estimate","margin_of_error")
+  tbl <-table_cleanup(tbl, c("variable_description","estimate","margin_of_error"), c("Mode","People","Margin of Error"))
+  tbl <- tbl[Mode != "Mean travel time to work (minutes)"]
+  total_commuters <- as.integer(tbl[Mode == "Workers 16 years and over",sum(People)])
+  tbl$`Mode Share` <- tbl$People / total_commuters
+  tbl <- tbl[Mode != "Workers 16 years and over"]
+  wrk_ord <- c("Drove Alone", "Carpooled", "Transit", "Walked", "Other means", "Telework")
+  tbl$Mode <- factor(tbl$Mode, levels = wrk_ord)
+  tbl <- tbl[order(`Mode`),]
+  return(tbl)
+}
+
+create_occupation_tbl <- function(wrk_tbl,wrk_plc,wrk_yr) {
+
+  tbl <- wrk_tbl[place_name %in% wrk_plc & year %in% wrk_yr]
+  tbl <- tbl[variable_category %in% "OCCUPATION"]
+  cols <- c("variable_description","estimate","margin_of_error")
+  tbl <-table_cleanup(tbl, c("variable_description","estimate","margin_of_error"), c("Occupation","People","Margin of Error"))
+  total_workers <- as.integer(tbl[Occupation == "Civilian employed population 16 years and over",sum(People)])
+  tbl$`Share` <- tbl$People / total_workers
+  tbl <- tbl[Occupation != "Civilian employed population 16 years and over"]
+  return(tbl)
+}
+
+create_industry_tbl <- function(wrk_tbl,wrk_plc,wrk_yr) {
+
+  tbl <- wrk_tbl[place_name %in% wrk_plc & year %in% wrk_yr]
+  tbl <- tbl[variable_category %in% "INDUSTRY"]
+  cols <- c("variable_description","estimate","margin_of_error")
+  tbl <-table_cleanup(tbl, c("variable_description","estimate","margin_of_error"), c("Industry","People","Margin of Error"))
+  total_workers <- as.integer(tbl[Industry == "Civilian employed population 16+",sum(People)])
+  tbl$`Share` <- tbl$People / total_workers
+  tbl <- tbl[Industry != "Civilian employed population 16+"]
+  return(tbl)
+}
+
+return_estimate <- function(wrk_tbl,wrk_plc,wrk_yr,wrk_var, wrk_val, wrk_dec) {
+  
+  wrk_result <- format(as.numeric(wrk_tbl[place_name %in% wrk_plc & year %in% wrk_yr & variable_name %in% wrk_var,sum(get(wrk_val))]), nsmall = wrk_dec, big.mark = ",")
+  return(wrk_result)
+  
+}
+
+create_housing_tbl <- function(wrk_tbl,wrk_plc,wrk_yr,wrk_vars,wrk_ord) {
+
+  place_result <- NULL
+  county_result <- NULL
+
+  # Calculate Table for Place
+  for (census_variables in wrk_vars) {
+    
+    current_output <- wrk_tbl[place_name %in% wrk_plc & year %in% wrk_yr & variable_name %in% census_variables]
+    cols <- c("variable_category","variable_description","estimate","margin_of_error")
+    current_output <- table_cleanup(current_output, c("variable_category","variable_description","estimate","margin_of_error"), c("Category","Variable","Estimate","Margin of Error"))
+    
+    if (is.null(place_result)) {place_result <- current_output} else {place_result <- rbind(place_result,current_output)}
+    
+  }
+
+  place_result$Variable[place_result$Category == "SELECTED MONTHLY OWNER COSTS (SMOC)"] <- "Median Mortgage"
+  place_result$Variable[place_result$Category == "GROSS RENT"] <- "Median Rent"
+  curr_cols <- c("Variable","Estimate","Margin of Error")
+  place_result <- place_result[,..curr_cols]
+  
+  # Calculate Table for County of Place
+  for (census_variables in wrk_vars) {
+  
+    current_output <- wrk_tbl[place_name %in% (find_city_county(wrk_plc)) & year %in% wrk_yr & variable_name %in% census_variables]
+    cols <- c("variable_category","variable_description","estimate","margin_of_error")
+    current_output <- table_cleanup(current_output, c("variable_category","variable_description","estimate","margin_of_error"), c("Category","Variable","Estimate","Margin of Error"))
+  
+    if (is.null(county_result)) {county_result <- current_output} else {county_result <- rbind(county_result,current_output)}
+  }
+
+  county_result$Variable[county_result$Category == "SELECTED MONTHLY OWNER COSTS (SMOC)"] <- "Median Mortgage"
+  county_result$Variable[county_result$Category == "GROSS RENT"] <- "Median Rent"
+  curr_cols <- c("Variable","Estimate","Margin of Error")
+  county_result <- county_result[,..curr_cols]  
+  
+  wrk_result <- merge(place_result, county_result, by = "Variable")
+  wrk_result$Variable <- factor(wrk_result$Variable, levels = wrk_ord)
+  wrk_result <- wrk_result[order(`Variable`),]
+    
+  return(wrk_result)
+
+}
+
+create_table_container <- function(cat_nms, scen_nms, metric_nms) {
+  
+  wrk_container = htmltools::withTags(table(
+    class = 'display',
+    thead(
+      tr(
+        th(class = 'dt-center', rowspan = 3, cat_nms)
+      ),
+      tr(
+        lapply(scen_nms, function(x) th(class = 'dt-center', colspan =2, x))
+      ),
+      tr(
+        lapply(rep(metric_nms, length(scen_nms)), function(x) th(class = 'dt-center', x))
+      )
+    )
+  ))
+  
+  return(wrk_container)
+
+} 
+
+create_mode_map <- function(w_tbl, w_yr, w_color, w_mode, w_place, w_group, w_title) {
+  
+  current_tbl <- w_tbl[year %in% w_yr & variable_description %in% w_mode]
+  current_tbl$estimate_percent[current_tbl$estimate_percent <= 0] <- 0
+  current_value  <- sp::merge(tract.shape, current_tbl, by.x = "GEOID10", by.y = "geoid")
+
+  # Determine Bins
+  rng <- range(current_value$estimate_percent)
+  max_bin <- max(abs(rng))
+  round_to <- 10^floor(log10(max_bin))
+  max_bin <- ceiling(max_bin/round_to)*round_to
+  breaks <- (max_bin*c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1))
+  bins <- c(0, breaks)
+  
+  pal <- colorBin(w_color, domain = current_value$estimate_percent, bins = bins)
+
+  labels <- paste0("<b>",w_group,": ", "</b>",current_value$variable_description,
+                  "<b> <br>",paste0(w_title,": "), "</b>", prettyNum(round(current_value$estimate_percent, 1), big.mark = ","),"%") %>% lapply(htmltools::HTML)
+    
+  # Create Map
+  working_map <- leaflet(data = current_value) %>% 
+    addProviderTiles(providers$CartoDB.Positron) %>%
+    addPolygons(fillColor = pal(current_value$estimate_percent),
+                weight = 0.5,
+                opacity = 1,
+                color = "white",
+                dashArray = "3",
+                fillOpacity = 0.7,
+                highlight = highlightOptions(
+                  weight =5,
+                  color = "76787A",
+                  dashArray ="",
+                  fillOpacity = 0.7,
+                  bringToFront = TRUE),
+                label = labels,
+                labelOptions = labelOptions(
+                  style = list("font-weight" = "normal", padding = "3px 8px"),
+                  textsize = "15px",
+                  direction = "auto"))%>%
+    addLegend("bottomright", pal=pal, values = current_value$estimate_percent,
+              title = paste0(w_mode),
+              labFormat = labelFormat(suffix = "%"),
+              opacity = 1) %>%
+    setView(lng=find_city_coordinates(w_place,"long"), lat=find_city_coordinates(w_place,"lat"), zoom=find_city_coordinates(w_place,"zoom"))
+  
+  return(working_map)
+
+}
+
+# Pull tables from Central Database
+geography_dim <- table_from_db(server_name,database_name,"census.geography_dim")
+variable_dim <- table_from_db(server_name,database_name,"census.variable_dim")
+variable_facts <- table_from_db(server_name,database_name,"census.variable_facts")
+
+# Minor table cleanup and merging of tables
+geography <- table_cleanup(geography_dim,c("geography_dim_id","geoid","summary_level","name","place_type","state"),c("geography_dim_id","geoid","summary_level","place_name","place_type","place_state"))
+
+variables <- table_cleanup(variable_dim,c("variable_dim_id","census_year","census_table_code","census_product","name","category","variable_description"),c("variable_dim_id","year","census_table","census_product","variable_name","variable_category","variable_description"))
+
+census_data <- merge(variable_facts,variables, by="variable_dim_id")
+census_data <- merge(census_data,geography, by="geography_dim_id")
+
+census_data$variable_description[census_data$variable_description == "Car, truck, or van -- drove alone"] <- "Drove Alone"
+census_data$variable_description[census_data$variable_description == "Car, truck, or van -- carpooled"] <- "Carpooled"
+
+census_data$variable_description[census_data$variable_description == "Car truck or van drove alone"] <- "Drove Alone"
+census_data$variable_description[census_data$variable_description == "Car truck or van carpooled"] <- "Carpooled"
+census_data$variable_description[census_data$variable_description == "Public transportation (excluding taxicab)"] <- "Transit"
+census_data$variable_description[census_data$variable_description == "Worked at home"] <- "Telework"
+
+# Clean up Industry Names
+census_data$variable_description[census_data$variable_name == "DP03_0032"] <- "Civilian employed population 16+"
+census_data$variable_description[census_data$variable_name == "DP03_0033"] <- "Agriculture, forestry & mining"
+census_data$variable_description[census_data$variable_name == "DP03_0034"] <- "Construction"
+census_data$variable_description[census_data$variable_name == "DP03_0035"] <- "Manufacturing"
+census_data$variable_description[census_data$variable_name == "DP03_0036"] <- "Wholesale"
+census_data$variable_description[census_data$variable_name == "DP03_0037"] <- "Retail"
+census_data$variable_description[census_data$variable_name == "DP03_0038"] <- "Transportation, Warehousing & Utilities"
+census_data$variable_description[census_data$variable_name == "DP03_0039"] <- "Information"
+census_data$variable_description[census_data$variable_name == "DP03_0040"] <- "FIRES"
+census_data$variable_description[census_data$variable_name == "DP03_0041"] <- "Professional, Management & Administrative"
+census_data$variable_description[census_data$variable_name == "DP03_0042"] <- "Education, Health Care & Social services"
+census_data$variable_description[census_data$variable_name == "DP03_0043"] <- "Entertainment, Accommodations & Food services"
+census_data$variable_description[census_data$variable_name == "DP03_0044"] <- "Other services"
+census_data$variable_description[census_data$variable_name == "DP03_0045"] <- "Public Administration"
+
+# Add County to the name for the coutnies to avoid overlap with place names 
+census_data$place_name[census_data$place_name == "King" & census_data$place_type == "co "] <- "King County"
+census_data$place_name[census_data$place_name == "Kitsap" & census_data$place_type == "co "] <- "Kitsap County"
+census_data$place_name[census_data$place_name == "Pierce" & census_data$place_type == "co "] <- "Pierce County"
+census_data$place_name[census_data$place_name == "Snohomish" & census_data$place_type == "co "] <- "Snohomish County"
+
+# Clean up workspace
+rm("geography_dim","variable_dim","variable_facts","geography","variables") 
+```
+
+```{r data_profiles, include=FALSE}
+# Trim data to Washington and Get a Clean list of places for analysis
+wa_places <- census_data[place_state %in% "WA" & census_product %in% "5yr"]
+wa_places$place_type <- str_trim(wa_places$place_type, "right")
+wa_places <- wa_places[place_type %in% c("pl","co")]
+only_places <- wa_places[place_type %in% c("pl")]
+
+# Find Unique List of Modes
+modes <- only_places[variable_category %in% "COMMUTING TO WORK"]
+modes <- modes[variable_description != "Workers 16 years and over"]
+modes <- modes[variable_description != "Mean travel time to work (minutes)"]
+
+# Find Unique List of Industry
+ind <- only_places[variable_category %in% "INDUSTRY"]
+data_ind <- unique(ind$variable_description)
+
+data_years <- unique(wa_places$year)
+data_places <- unique(only_places$place_name)
+data_modes <- unique(modes$variable_description)
+```
+
+```{r tract_ms_layers, include=FALSE}
+all_tracts <- census_data[place_state %in% "WA" & census_product %in% "5yr" & place_type %in% "tr " & variable_category %in% "COMMUTING TO WORK"]
+cols_to_keep <- c("year","variable_description","estimate_percent","geoid")
+all_tracts <- all_tracts[,..cols_to_keep]
+```
+
+```{r echo=FALSE}
+
+pageWithSidebar(
+  headerPanel('City Profiles'),
+  sidebarPanel(
+    selectInput("Place","Please Select the place you are interested in:",data_places),
+    selectInput("Year","Please Select the year you are interested in:",data_years),
+    textOutput("selectedPopulation"),
+    textOutput("selectedMedianAge"),
+    textOutput("selectedMedianIncome"),
+    textOutput("selectedAvgHHSize"),
+    textOutput("selectedUnempRate"),
+    textOutput("selectedAvgTT"),
+    hr(),
+    downloadLink('downloadData', label = "Download ACS Data Profile"),
+    hr()
+  ),
+  mainPanel(
+    leafletOutput("wrk_map")
+  )
+)
+
+output$selectedPopulation <- renderText({
+  paste("Population: ", return_estimate(wa_places, input$Place, input$Year, "DP02_0086","estimate",0))
+})
+
+output$selectedMedianAge <- renderText({
+  paste("Median Age: ", return_estimate(wa_places, input$Place, input$Year, "DP05_0018","estimate",1))
+})
+
+output$selectedMedianIncome <- renderText({
+  paste("Median HH Income: $", return_estimate(wa_places, input$Place, input$Year, "DP03_0062","estimate",0))
+})
+
+output$selectedAvgHHSize <- renderText({
+  paste("Average HH Size: ", return_estimate(wa_places, input$Place, input$Year, "DP02_0015","estimate",2))
+})
+
+output$selectedUnempRate <- renderText({
+  paste("Unemployment Rate: ", return_estimate(wa_places, input$Place, input$Year, "DP03_0009","estimate_percent",1),"%")
+})
+
+output$selectedAvgTT <- renderText({
+  paste("Travel Time to Work: ", return_estimate(wa_places, input$Place, input$Year, "DP03_0025","estimate",1), " minutes")
+})
+
+output$wrk_map <- renderLeaflet({
+  leaflet() %>%
+    addTiles() %>%
+    setView(lng=find_city_coordinates(input$Place,"long"), lat=find_city_coordinates(input$Place,"lat"), zoom=find_city_coordinates(input$Place,"zoom"))
+})
+
+output$downloadData <- downloadHandler(
+  filename = function() {paste0("acsprof",as.character(as.integer(input$Year)-2004),"-",as.character(as.integer(input$Year)-2000),"-pl-",str_replace(tolower(input$Place)," ","-"),".xlsx")},
+  content <- function(file) {file.copy(paste0("c:/coding/census-data-profiles/output/acsprof",as.character(as.integer(input$Year)-2004),"-",as.character(as.integer(input$Year)-2000),"-pl-",str_replace(tolower(input$Place)," ","-"),".xlsx"),file)},
+  contentType = "application/Excel"
+)
+  
+```
+
+```{r echo=FALSE}
+
+# Housing 
+cols_to_format <- c("Estimate.x","Margin of Error.x","Estimate.y","Margin of Error.y")
+list_length <- 10
+
+output$table_hu <- DT::renderDataTable({
+  datatable(create_housing_tbl(wa_places, input$Place,input$Year, list("DP04_0001","DP04_0002"),c("Total housing units", "Occupied housing units")), container = create_table_container("Type",c(input$Place,find_city_county(input$Place)),c("Estimate","Margin of Error")), rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(cols_to_format, "", digits = 0)
+})
+
+output$table_hc <- DT::renderDataTable({
+  datatable(create_housing_tbl(wa_places, input$Place,input$Year, list("DP04_0101","DP04_0134"),c("Median Rent", "Median Mortgage")), container = create_table_container("Type",c(input$Place,find_city_county(input$Place)),c("Estimate","Margin of Error")), rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(cols_to_format, "$", digits = 0)
+})
+
+output$table_vr <- DT::renderDataTable({
+  datatable(create_housing_tbl(wa_places, input$Place,input$Year, list("DP04_0004","DP04_0005"),c("Rental vacancy rate", "Homeowner vacancy rate")), container = create_table_container("Type",c(input$Place,find_city_county(input$Place)),c("Estimate","Margin of Error")), rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(cols_to_format, "", digits = 1)  %>% formatString(cols_to_format, suffix = "%")
+})
+
+output$housing_heading <- renderText({
+  paste("Housing Data: ",  input$Place)
+})
+
+mainPanel(
+      h2(textOutput("housing_heading")),
+      renderText("This data tells you about various housing data in the current jurisdiction."),
+      hr(),
+      tabsetPanel(type = "tabs",
+                  tabPanel("Housing Units", DT::dataTableOutput("table_hu", width = "150%" )),
+                  tabPanel("Housing Costs", DT::dataTableOutput("table_hc", width = "150%" )),
+                  tabPanel("Vacancy Rates", DT::dataTableOutput("table_vr", width = "150%" ))
+      )
+)
+
+```
+
+
+```{r echo=FALSE}
+
+# Occupation
+
+numeric_occ <- c("People","Margin of Error")
+percent_occ <- c("Share")
+list_length <- 10
+
+output$table_occ <- DT::renderDataTable({
+  datatable(create_occupation_tbl(wa_places, input$Place,input$Year),rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets =1:3)))) %>% formatCurrency(numeric_occ, "", digits = 0) %>% formatPercentage(percent_occ, 1)
+})
+
+output$plot_occ <- renderPlotly({
+  ggplotly(
+    ggplot(data=create_occupation_tbl(wa_places, input$Place,input$Year), 
+           aes(x=`Occupation`, 
+               y=`Share`,
+               text= paste0("<b>", "% of Total Workers: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
+               )) +
+      geom_bar(stat="identity", color = "#91268F", fill = "#91268F" ) +
+      scale_y_continuous(labels = scales::percent, limits = c(0, 1))+
+      xlab("Occupation") +
+      ylab("Percent of Total Workers") +
+      theme(legend.position = "none",
+        axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_blank())+
+     scale_x_discrete(labels = function(x) str_wrap(x, width = 5))
+  ,tooltip = c("text"))
+})
+
+output$occ_heading <- renderText({
+  paste("Occupations: ",  input$Place, " Residents")
+})
+
+mainPanel(
+      h2(textOutput("occ_heading")),
+      renderText("This data tells you about the types of jobs people have."),
+      hr(),
+      tabsetPanel(type = "tabs",
+                  tabPanel("Plot", plotlyOutput("plot_occ", width = "150%")),
+                  tabPanel("Table", DT::dataTableOutput("table_occ", width = "150%" ))
+      )
+)
+
+```
+
+```{r echo=FALSE}
+
+# Industry
+
+numeric_ind <- c("People","Margin of Error")
+percent_ind <- c("Share")
+list_length <- 10
+
+output$table_ind <- DT::renderDataTable({
+  datatable(create_industry_tbl(wa_places, input$Place,input$Year),rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets =1:3)))) %>% formatCurrency(numeric_ind, "", digits = 0) %>% formatPercentage(percent_ind, 1)
+})
+
+output$plot_ind <- renderPlotly({
+  ggplotly(
+    ggplot(data=create_industry_tbl(wa_places, input$Place,input$Year), 
+           aes(x=`Industry`, 
+               y=`Share`,
+               text= paste0("<b>", "% of Total Workers: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
+               )) +
+      geom_bar(stat="identity", color = "#00A7A0", fill = "#00A7A0" ) +
+      scale_y_continuous(labels = scales::percent, limits = c(0, 0.5))+
+      coord_flip() +
+      theme(legend.position = "none",
+        axis.title.y=element_blank(), 
+        axis.title.x=element_blank(),
+        axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_blank())
+  ,tooltip = c("text"))
+})
+
+output$ind_heading <- renderText({
+  paste("Industry: ",  input$Place, " Residents")
+})
+
+mainPanel(
+      h2(textOutput("ind_heading")),
+      renderText("This data tells you about the types of industries that people work in."),
+      hr(),
+      tabsetPanel(type = "tabs",
+                  tabPanel("Plot", plotlyOutput("plot_ind", width = "150%")),
+                  tabPanel("Table", DT::dataTableOutput("table_ind", width = "150%" ))
+      )
+)
+
+```
+
+```{r echo=FALSE}
+
+# Mode Share
+
+numeric_ms <- c("People","Margin of Error")
+percent_ms <- c("Mode Share")
+list_length <- 10
+
+output$table_ms <- DT::renderDataTable({
+  datatable(create_modeshare_tbl(wa_places, input$Place,input$Year),rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets =1:3)))) %>% formatCurrency(numeric_ms, "", digits = 0) %>% formatPercentage(percent_ms, 1)
+})
+
+output$plot_ms <- renderPlotly({
+  ggplotly(
+    ggplot(data=create_modeshare_tbl(wa_places, input$Place,input$Year), 
+           aes(x=`Mode`, 
+               y=`Mode Share`,
+               text= paste0("<b>", "% of Total Commuters: ","</b>",prettyNum(round(`Mode Share`*100, 1), big.mark = ","),"%")
+               )) +
+      geom_bar(stat="identity", color = "#8CC63E", fill = "#8CC63E" ) +
+      scale_y_continuous(labels = scales::percent, limits = c(0, 1))+
+      xlab("Mode of Travel") +
+      ylab("Percent of Total Commuters") +
+      theme(legend.position = "none",
+        axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_blank())+
+     scale_x_discrete(labels = function(x) str_wrap(x, width = 5))
+  ,tooltip = c("text"))
+})
+
+output$ms_heading <- renderText({
+  paste("Mode to Work: ",  input$Place, " Residents")
+})
+
+output$ms_map <- renderLeaflet({create_mode_map(all_tracts, input$Year, "Blues", input$Mode, input$Place, "Mode", "Share")})
+
+mainPanel(
+      h2(textOutput("ms_heading")),
+      renderText("This data tells you about the mode of travel people use to get to work on a average workday."),
+      hr(),
+      tabsetPanel(type = "tabs",
+                  tabPanel("Plot", plotlyOutput("plot_ms", width = "150%")),
+                  tabPanel("Table", DT::dataTableOutput("table_ms", width = "150%" )),
+                  tabPanel("Map", selectInput("Mode","Select mode:",data_modes), leafletOutput("ms_map", width = "150%" ))
+      )
+)
+
+```
+
+```{r echo=FALSE}
+
+# Travel Time
+
+numeric_tt <- c("People","Margin of Error")
+percent_tt <- c("Percent of Total Commuters")
+list_length <- 15
+
+output$table_tt <- DT::renderDataTable({
+  datatable(create_commute_tbl(wa_places, input$Place,input$Year),rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets =1:3)))) %>% formatCurrency(numeric_tt, "", digits = 0) %>% formatPercentage(percent_tt, 1)
+})
+
+output$plot_tt <- renderPlotly({
+  ggplotly(
+    ggplot(data=create_commute_tbl(wa_places, input$Place,input$Year), 
+           aes(x=`Travel Time (minutes)`, 
+               y=`Percent of Total Commuters`,
+               text= paste0("<b>", "% of Total Commuters: ","</b>",prettyNum(round(`Percent of Total Commuters`*100, 1), big.mark = ","),"%")
+               )) +
+      geom_bar(stat="identity", color = "#F05A28", fill = "#F05A28" ) +
+      scale_y_continuous(labels = scales::percent, limits = c(0, 0.5))+
+      xlab("Travel Time (minutes)") +
+      ylab("Percent of Total Commuters") +
+      theme(legend.position = "none",
+        axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_blank())+
+      scale_x_discrete(labels = function(x) str_wrap(x, width = 5))
+  ,tooltip = c("text"))
+})
+
+output$tt_heading <- renderText({
+  paste("Travel Time to Work: ",  input$Place, " Residents")
+})
+
+mainPanel(
+      h2(textOutput("tt_heading")),
+      renderText("This data tells you about the time it takes people to get to work on a average workday."),
+      hr(),
+      tabsetPanel(type = "tabs",
+                  tabPanel("Plot", plotlyOutput("plot_tt", width = "150%")),
+                  tabPanel("Table", DT::dataTableOutput("table_tt", width = "150%"))
+      )
+)
+
+```
+
+
