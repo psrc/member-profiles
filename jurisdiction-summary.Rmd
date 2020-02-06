@@ -2,6 +2,7 @@
 output: 
   html_document:
     theme: cerulean
+    css: 'styles.css'
     toc: false
   runtime: shiny
 ---
@@ -10,6 +11,22 @@ library(knitr)
 knitr::opts_chunk$set(echo = TRUE)
 include_graphics("https://www.psrc.org/sites/default/files/psrclogo_0.png") 
 ```
+
+# Community Profiles
+
+We invite you to explore our various data sets through our Community Profiles Data Portal. This data portal provides access to census and project related information by jurisdiction.
+
+
+As a State Data Center for the central Puget Sound region, PSRC keeps a complete inventory of data released from the 1990, 2000, and 2010 censuses, as well as the American Community Survey (ACS).  The American Community Survey (ACS) is a product of the U.S. Census Bureau. Cities and counties use the ACS to track the well-being of children, families, and the elderly. They use it to determine where to locate new roads and transit routes, schools, and hospitals. This portal includes demographic profiles which include age, sex, income, household size, education, and other topics for all cities and towns in the PSRC region.
+
+
+![](pictures/bainbridgeislandferry.jpg)
+
+
+The Regional Transportation Plan (RTP) was adopted by the PSRC General Assembly on May 31, 2018. It maps how the region intends to catch up and keep pace with expected growth. It outlines unprecedented investments the region is making to improve highway, transit, rail, ferry, bicycle and pedestrian systems to support the safe and efficient movement of people and goods. This data portal allows access to data on the projects in the RTP within your Community.
+
+
+If you can’t find what you’re looking for, or would like further information about Census or project related data products, please contact us and we will be happy to assist you.
 
 ```{r database_connections, include=FALSE}
 library(odbc)
@@ -25,6 +42,7 @@ library(foreign)
 library(leaflet)
 library(sp)
 library(rgdal)
+library(raster)
 
 server_name <- "AWS-PROD-SQL\\COHO"
 database_name <- "Elmer"
@@ -48,6 +66,15 @@ city_points$FIRST_CNTY[city_points$FIRST_CNTY == "Snohomish"] <- "Snohomish Coun
 
 # Census Tract Shapefile
 tract.shape <- readOGR(dsn='c:/shapefiles',layer='tract_2010_no_water_wgs1984')
+tract.shape$GEOID10 <- as.character(tract.shape$GEOID10)
+
+# Project Shapefile
+rtp.shape <- readOGR(dsn='c:/shapefiles',layer='rtp_2040_wgs1984')
+
+# City Shapefile
+city.shape <- readOGR(dsn='c:/shapefiles',layer='city_wgs1984')
+city.shape$CITYNAME <- as.character(city.shape$CITYNAME)
+city.shape$CNTYNAME <- as.character(city.shape$CNTYNAME)
 
 find_city_coordinates <- function(wrk_nm, wrk_typ) {
   
@@ -107,11 +134,11 @@ create_modeshare_tbl <- function(wrk_tbl,wrk_plc,wrk_yr) {
   tbl <- tbl[variable_category %in% "COMMUTING TO WORK"]
   cols <- c("variable_description","estimate","margin_of_error")
   tbl <-table_cleanup(tbl, c("variable_description","estimate","margin_of_error"), c("Mode","People","Margin of Error"))
-  tbl <- tbl[Mode != "Mean travel time to work (minutes)"]
-  total_commuters <- as.integer(tbl[Mode == "Workers 16 years and over",sum(People)])
+  tbl <- tbl[Mode != "Mean Travel Time to Work"]
+  total_commuters <- as.integer(tbl[Mode == "Workers 16+",sum(People)])
   tbl$`Mode Share` <- tbl$People / total_commuters
-  tbl <- tbl[Mode != "Workers 16 years and over"]
-  wrk_ord <- c("Drove Alone", "Carpooled", "Transit", "Walked", "Other means", "Telework")
+  tbl <- tbl[Mode != "Workers 16+"]
+  wrk_ord <- c("Drove Alone", "Carpooled", "Transit", "Walked", "Other", "Telework")
   tbl$Mode <- factor(tbl$Mode, levels = wrk_ord)
   tbl <- tbl[order(`Mode`),]
   return(tbl)
@@ -138,6 +165,26 @@ create_industry_tbl <- function(wrk_tbl,wrk_plc,wrk_yr) {
   total_workers <- as.integer(tbl[Industry == "Civilian employed population 16+",sum(People)])
   tbl$`Share` <- tbl$People / total_workers
   tbl <- tbl[Industry != "Civilian employed population 16+"]
+  wrk_ord <- c("Agriculture, forestry & mining", "Construction", "Education, Health Care & Social services", "Entertainment, Accommodations & Food services", "FIRES", "Information", "Manufacturing", "Other services", "Professional, Management & Administrative", "Public Administration", "Retail", "Transportation, Warehousing & Utilities","Wholesale")
+  tbl$Industry <- factor(tbl$Industry, levels = wrk_ord)
+  tbl <- tbl[order(`Industry`),]  
+  
+  return(tbl)
+}
+
+create_income_tbl <- function(wrk_tbl,wrk_plc,wrk_yr) {
+
+  tbl <- wrk_tbl[place_name %in% wrk_plc & year %in% wrk_yr]
+  inc_vars <- c("DP03_0051","DP03_0052","DP03_0053","DP03_0054","DP03_0055","DP03_0056","DP03_0057","DP03_0058","DP03_0059","DP03_0060","DP03_0061")
+  tbl <- tbl[variable_name %in% inc_vars]
+  cols <- c("variable_description","estimate","margin_of_error")
+  tbl <-table_cleanup(tbl, c("variable_description","estimate","margin_of_error"), c("Income","People","Margin of Error"))
+  total_workers <- as.integer(tbl[Income == "Total households",sum(People)])
+  tbl$`Share` <- tbl$People / total_workers
+  tbl <- tbl[Income != "Total households"]
+  wrk_ord <- c("less than 10k","10k to 15k","15k to 25k","25k to 35k","35k to 50k","50k to 75k","75k to 100k","100k to 150k","150k to 200k","more than 200k")
+  tbl$Income <- factor(tbl$Income, levels = wrk_ord)
+  tbl <- tbl[order(`Income`),] 
   return(tbl)
 }
 
@@ -217,7 +264,14 @@ create_mode_map <- function(w_tbl, w_yr, w_color, w_mode, w_place, w_group, w_ti
   
   current_tbl <- w_tbl[year %in% w_yr & variable_description %in% w_mode]
   current_tbl$estimate_percent[current_tbl$estimate_percent <= 0] <- 0
-  current_value  <- sp::merge(tract.shape, current_tbl, by.x = "GEOID10", by.y = "geoid")
+  
+  # Trim Tracts for current place
+  city <- city.shape[which(city.shape$CITYNAME %in% w_place),]
+  interim <- intersect(tract.shape, city)
+  tract_ids <- unique(interim$GEOID10)
+  
+  tracts.trimmed <- tract.shape[which(tract.shape$GEOID10 %in% tract_ids),]
+  current_value  <- sp::merge(tracts.trimmed, current_tbl, by.x = "GEOID10", by.y = "geoid")
 
   # Determine Bins
   rng <- range(current_value$estimate_percent)
@@ -235,7 +289,81 @@ create_mode_map <- function(w_tbl, w_yr, w_color, w_mode, w_place, w_group, w_ti
   # Create Map
   working_map <- leaflet(data = current_value) %>% 
     addProviderTiles(providers$CartoDB.Positron) %>%
+    addLayersControl(baseGroups = c("Base Map"),
+                    overlayGroups = c("Census Tracts","City Boundary"),
+                    options = layersControlOptions(collapsed = FALSE)) %>%
+    addPolygons(data = city,
+                fillColor = "76787A",
+                weight = 4,
+                opacity = 1.0,
+                color = "#91268F",
+                dashArray = "4",
+                fillOpacity = 0.0,
+                group = "City Boundary")%>% 
     addPolygons(fillColor = pal(current_value$estimate_percent),
+                weight = 1.0,
+                opacity = 1,
+                color = "white",
+                dashArray = "3",
+                fillOpacity = 0.7,
+                highlight = highlightOptions(
+                  weight =5,
+                  color = "76787A",
+                  dashArray ="",
+                  fillOpacity = 0.7,
+                  bringToFront = TRUE),
+                label = labels,
+                labelOptions = labelOptions(
+                  style = list("font-weight" = "normal", padding = "3px 8px"),
+                  textsize = "15px",
+                  direction = "auto"),
+                group = "Census Tracts")%>%
+    addLegend("bottomright", pal=pal, values = current_value$estimate_percent,
+              title = paste0(w_mode),
+              labFormat = labelFormat(suffix = "%"),
+              opacity = 1) %>%
+    setView(lng=find_city_coordinates(w_place,"long"), lat=find_city_coordinates(w_place,"lat"), zoom=find_city_coordinates(w_place,"zoom"))
+  
+  return(working_map)
+
+}
+
+create_tt_map <- function(w_tbl, w_yr, w_color, w_place, w_group, w_title) {
+  
+  current_tbl <- w_tbl[year %in% w_yr & variable_name %in% "DP03_0025"]
+  current_tbl$estimate[current_tbl$estimate <= 0] <- 0
+  
+  # Trim Tracts for current place
+  city <- city.shape[which(city.shape$CITYNAME %in% w_place),]
+  interim <- intersect(tract.shape, city)
+  tract_ids <- unique(interim$GEOID10)
+  
+  tracts.trimmed <- tract.shape[which(tract.shape$GEOID10 %in% tract_ids),]
+  current_value  <- sp::merge(tracts.trimmed, current_tbl, by.x = "GEOID10", by.y = "geoid")  
+  
+  breaks <- c(10, 20, 30, 40, 50, 60, 90, 120)
+  bins <- c(0, breaks)
+  
+  pal <- colorBin(w_color, domain = current_value$estimate, bins = bins)
+
+  labels <- paste0("<b>",w_group,": ", "</b>",current_value$variable_description,
+                  "<b> <br>",paste0(w_title,": "), "</b>", prettyNum(round(current_value$estimate, 1), big.mark = ",")) %>% lapply(htmltools::HTML)
+    
+  # Create Map
+  working_map <- leaflet(data = current_value) %>% 
+    addProviderTiles(providers$CartoDB.Positron) %>%
+    addLayersControl(baseGroups = c("Base Map"),
+                    overlayGroups = c("Census Tracts","City Boundary"),
+                    options = layersControlOptions(collapsed = FALSE)) %>%
+    addPolygons(data = city,
+                fillColor = "76787A",
+                weight = 4,
+                opacity = 1.0,
+                color = "#91268F",
+                dashArray = "4",
+                fillOpacity = 0.0,
+                group = "City Boundary")%>% 
+    addPolygons(fillColor = pal(current_value$estimate),
                 weight = 0.5,
                 opacity = 1,
                 color = "white",
@@ -251,10 +379,10 @@ create_mode_map <- function(w_tbl, w_yr, w_color, w_mode, w_place, w_group, w_ti
                 labelOptions = labelOptions(
                   style = list("font-weight" = "normal", padding = "3px 8px"),
                   textsize = "15px",
-                  direction = "auto"))%>%
-    addLegend("bottomright", pal=pal, values = current_value$estimate_percent,
-              title = paste0(w_mode),
-              labFormat = labelFormat(suffix = "%"),
+                  direction = "auto"),
+                group = "Census Tracts")%>%
+    addLegend("bottomright", pal=pal, values = current_value$estimate,
+              title = "Mean Travel Time to Work (minutes)",
               opacity = 1) %>%
     setView(lng=find_city_coordinates(w_place,"long"), lat=find_city_coordinates(w_place,"lat"), zoom=find_city_coordinates(w_place,"zoom"))
   
@@ -262,6 +390,118 @@ create_mode_map <- function(w_tbl, w_yr, w_color, w_mode, w_place, w_group, w_ti
 
 }
 
+create_project_map <- function(w_place) {
+  
+  # First determine the city and trim city shapefile and project coverage to the city
+  city <- city.shape[which(city.shape$CITYNAME %in% w_place),]
+  interim <- intersect(rtp.shape, city)
+  proj_ids <- unique(interim$mtpid)
+  
+  if (is.null(interim) == TRUE) {
+    
+      working_map <- leaflet() %>% 
+        addProviderTiles(providers$CartoDB.Positron) %>%
+        addLayersControl(baseGroups = c("Base Map"),
+                        overlayGroups = c("Approved Projects","Candidate Projects","Unprogrammed Projects","City Boundary"),
+                        options = layersControlOptions(collapsed = FALSE)) %>%
+        addPolygons(data = city,
+                  fillColor = "76787A",
+                  weight = 1,
+                  opacity = 1.0,
+                  color = "#444444",
+                  fillOpacity = 0.10,
+                  group = "City Boundary")%>%
+        setView(lng=find_city_coordinates(w_place,"long"), lat=find_city_coordinates(w_place,"lat"), zoom=find_city_coordinates(w_place,"zoom"))
+  
+  } else {
+  
+      rtp.trimmed <- rtp.shape[which(rtp.shape$mtpid %in% proj_ids),]
+  
+      candidate <- rtp.trimmed[which(rtp.trimmed$MTPStatus %in% "Candidate"),]
+      approved <- rtp.trimmed[which(rtp.trimmed$MTPStatus %in% "Approved"),]
+      unprogrammed <- rtp.trimmed[which(rtp.trimmed$MTPStatus %in% "Unprogrammed"),]
+
+      approved_labels <- paste0("<b>","Project Sponsor: ", "</b>",approved$Sponsor,
+                      "<b> <br>",paste0("Project Title: "), "</b>", approved$Title,
+                      "<b> <br>",paste0("Project Cost: $"), "</b>", prettyNum(round(approved$TotalCost, 0), big.mark = ","),
+                      "<b> <br>",paste0("Project Status: "), "</b>", approved$MTPStatus,
+                      "<b> <br>",paste0("Project Completion: "), "</b>", approved$Completion) %>% lapply(htmltools::HTML)
+  
+      candidate_labels <- paste0("<b>","Project Sponsor: ", "</b>",candidate$Sponsor,
+                      "<b> <br>",paste0("Project Title: "), "</b>", candidate$Title,
+                      "<b> <br>",paste0("Project Cost: $"), "</b>", prettyNum(round(candidate$TotalCost, 0), big.mark = ","),
+                      "<b> <br>",paste0("Project Status: "), "</b>", candidate$MTPStatus,
+                      "<b> <br>",paste0("Project Completion: "), "</b>", candidate$Completion) %>% lapply(htmltools::HTML)    
+  
+        unprogrammed_labels <- paste0("<b>","Project Sponsor: ", "</b>",unprogrammed$Sponsor,
+                      "<b> <br>",paste0("Project Title: "), "</b>", unprogrammed$Title,
+                      "<b> <br>",paste0("Project Cost: $"), "</b>", prettyNum(round(unprogrammed$TotalCost, 0), big.mark = ","),
+                      "<b> <br>",paste0("Project Status: "), "</b>", unprogrammed$MTPStatus,
+                      "<b> <br>",paste0("Project Completion: "), "</b>", unprogrammed$Completion) %>% lapply(htmltools::HTML)
+      # Create Map
+      working_map <- leaflet() %>% 
+        addProviderTiles(providers$CartoDB.Positron) %>%
+        addLayersControl(baseGroups = c("Base Map"),
+                        overlayGroups = c("Approved Projects","Candidate Projects","Unprogrammed Projects","City Boundary"),
+                        options = layersControlOptions(collapsed = FALSE)) %>%
+        addPolygons(data = city,
+                    fillColor = "76787A",
+                    weight = 4,
+                    opacity = 1.0,
+                    color = "#91268F",
+                    dashArray = "4",
+                    fillOpacity = 0.0,
+                    group = "City Boundary")%>% 
+        addPolylines(data = approved,
+                    color = "#91268F",
+                    weight = 4,
+                    label = approved_labels,
+                    fillColor = "#91268F",
+                    group = "Approved Projects") %>%
+        addPolylines(data = candidate,
+                    color = "#8CC63E",
+                    weight = 4,
+                    label = candidate_labels,
+                    fillColor = "#8CC63E",
+                    group = "Candidate Projects") %>%
+        addPolylines(data = unprogrammed,
+                    color = "#00A7A0",
+                    weight = 4,
+                    label = unprogrammed_labels,
+                    fillColor = "#00A7A0",
+                    group = "Unprogrammed Projects") %>%
+
+        setView(lng=find_city_coordinates(w_place,"long"), lat=find_city_coordinates(w_place,"lat"), zoom=find_city_coordinates(w_place,"zoom"))
+  }
+  
+  return(working_map)
+
+}
+
+create_project_table <- function(w_place) {
+  
+  # First determine the city and trim city shapefile and project coverage to the city
+  city <- city.shape[which(city.shape$CITYNAME %in% w_place),]
+  rtp.trimmed <- intersect(rtp.shape, city)
+  orig_cols <- c("mtpid","Sponsor","Title","Completion","MTPStatus","TotalCost")
+  upd_nms <- c("ID","Sponsor","Title","Project Completion","Project Status","Cost")
+  
+  if (is.null(rtp.trimmed) == TRUE) {
+    
+    tbl <- setNames(data.table(matrix(nrow = 0, ncol = 6)), upd_nms)
+    
+  } else {
+  
+      tbl <- rtp.trimmed@data
+      tbl <- tbl[,orig_cols]
+      setnames(tbl,upd_nms)
+      tbl <- tbl[!duplicated(tbl), ]
+  }
+  
+  return(tbl)
+
+}  
+  
 # Pull tables from Central Database
 geography_dim <- table_from_db(server_name,database_name,"census.geography_dim")
 variable_dim <- table_from_db(server_name,database_name,"census.variable_dim")
@@ -275,13 +515,15 @@ variables <- table_cleanup(variable_dim,c("variable_dim_id","census_year","censu
 census_data <- merge(variable_facts,variables, by="variable_dim_id")
 census_data <- merge(census_data,geography, by="geography_dim_id")
 
-census_data$variable_description[census_data$variable_description == "Car, truck, or van -- drove alone"] <- "Drove Alone"
-census_data$variable_description[census_data$variable_description == "Car, truck, or van -- carpooled"] <- "Carpooled"
-
-census_data$variable_description[census_data$variable_description == "Car truck or van drove alone"] <- "Drove Alone"
-census_data$variable_description[census_data$variable_description == "Car truck or van carpooled"] <- "Carpooled"
-census_data$variable_description[census_data$variable_description == "Public transportation (excluding taxicab)"] <- "Transit"
-census_data$variable_description[census_data$variable_description == "Worked at home"] <- "Telework"
+# Clean up Mode Names
+census_data$variable_description[census_data$variable_name == "DP03_0018"] <- "Workers 16+"
+census_data$variable_description[census_data$variable_name == "DP03_0019"] <- "Drove Alone"
+census_data$variable_description[census_data$variable_name == "DP03_0020"] <- "Carpooled"
+census_data$variable_description[census_data$variable_name == "DP03_0021"] <- "Transit"
+census_data$variable_description[census_data$variable_name == "DP03_0022"] <- "Walked"
+census_data$variable_description[census_data$variable_name == "DP03_0023"] <- "Other"
+census_data$variable_description[census_data$variable_name == "DP03_0024"] <- "Telework"
+census_data$variable_description[census_data$variable_name == "DP03_0025"] <- "Mean Travel Time to Work"
 
 # Clean up Industry Names
 census_data$variable_description[census_data$variable_name == "DP03_0032"] <- "Civilian employed population 16+"
@@ -298,6 +540,19 @@ census_data$variable_description[census_data$variable_name == "DP03_0042"] <- "E
 census_data$variable_description[census_data$variable_name == "DP03_0043"] <- "Entertainment, Accommodations & Food services"
 census_data$variable_description[census_data$variable_name == "DP03_0044"] <- "Other services"
 census_data$variable_description[census_data$variable_name == "DP03_0045"] <- "Public Administration"
+
+# Clean up Income Levels
+census_data$variable_description[census_data$variable_name == "DP03_0051"] <- "Total households"
+census_data$variable_description[census_data$variable_name == "DP03_0052"] <- "less than 10k"
+census_data$variable_description[census_data$variable_name == "DP03_0053"] <- "10k to 15k"
+census_data$variable_description[census_data$variable_name == "DP03_0054"] <- "15k to 25k"
+census_data$variable_description[census_data$variable_name == "DP03_0055"] <- "25k to 35k"
+census_data$variable_description[census_data$variable_name == "DP03_0056"] <- "35k to 50k"
+census_data$variable_description[census_data$variable_name == "DP03_0057"] <- "50k to 75k"
+census_data$variable_description[census_data$variable_name == "DP03_0058"] <- "75k to 100k"
+census_data$variable_description[census_data$variable_name == "DP03_0059"] <- "100k to 150k"
+census_data$variable_description[census_data$variable_name == "DP03_0060"] <- "150k to 200k"
+census_data$variable_description[census_data$variable_name == "DP03_0061"] <- "more than 200k"
 
 # Add County to the name for the coutnies to avoid overlap with place names 
 census_data$place_name[census_data$place_name == "King" & census_data$place_type == "co "] <- "King County"
@@ -318,12 +573,8 @@ only_places <- wa_places[place_type %in% c("pl")]
 
 # Find Unique List of Modes
 modes <- only_places[variable_category %in% "COMMUTING TO WORK"]
-modes <- modes[variable_description != "Workers 16 years and over"]
-modes <- modes[variable_description != "Mean travel time to work (minutes)"]
-
-# Find Unique List of Industry
-ind <- only_places[variable_category %in% "INDUSTRY"]
-data_ind <- unique(ind$variable_description)
+modes <- modes[variable_description != "Workers 16+"]
+modes <- modes[variable_description != "Mean Travel Time to Work"]
 
 data_years <- unique(wa_places$year)
 data_places <- unique(only_places$place_name)
@@ -332,16 +583,16 @@ data_modes <- unique(modes$variable_description)
 
 ```{r tract_ms_layers, include=FALSE}
 all_tracts <- census_data[place_state %in% "WA" & census_product %in% "5yr" & place_type %in% "tr " & variable_category %in% "COMMUTING TO WORK"]
-cols_to_keep <- c("year","variable_description","estimate_percent","geoid")
+cols_to_keep <- c("year","variable_name","variable_description","estimate","estimate_percent","geoid")
 all_tracts <- all_tracts[,..cols_to_keep]
 ```
 
 ```{r echo=FALSE}
 
 pageWithSidebar(
-  headerPanel('City Profiles'),
+  headerPanel('Community Selection'),
   sidebarPanel(
-    selectInput("Place","Please Select the place you are interested in:",data_places),
+    selectInput("Place","Please Select the community you are interested in:",data_places),
     selectInput("Year","Please Select the year you are interested in:",data_years),
     textOutput("selectedPopulation"),
     textOutput("selectedMedianAge"),
@@ -349,13 +600,11 @@ pageWithSidebar(
     textOutput("selectedAvgHHSize"),
     textOutput("selectedUnempRate"),
     textOutput("selectedAvgTT"),
-    hr(),
-    downloadLink('downloadData', label = "Download ACS Data Profile"),
-    hr()
-  ),
+    downloadLink('downloadData', label = "Download Data Profiles in Excel"),
+  width = 5),
   mainPanel(
-    leafletOutput("wrk_map")
-  )
+    leafletOutput("wrk_map"),
+  width = 7)
 )
 
 output$selectedPopulation <- renderText({
@@ -385,6 +634,13 @@ output$selectedAvgTT <- renderText({
 output$wrk_map <- renderLeaflet({
   leaflet() %>%
     addTiles() %>%
+    addPolygons(data = city.shape[which(city.shape$CITYNAME %in% input$Place),],
+                fillColor = "76787A",
+                weight = 4,
+                opacity = 1.0,
+                color = "#91268F",
+                dashArray = "4",
+                fillOpacity = 0.0)%>%
     setView(lng=find_city_coordinates(input$Place,"long"), lat=find_city_coordinates(input$Place,"lat"), zoom=find_city_coordinates(input$Place,"zoom"))
 })
 
@@ -393,7 +649,7 @@ output$downloadData <- downloadHandler(
   content <- function(file) {file.copy(paste0("c:/coding/census-data-profiles/output/acsprof",as.character(as.integer(input$Year)-2004),"-",as.character(as.integer(input$Year)-2000),"-pl-",str_replace(tolower(input$Place)," ","-"),".xlsx"),file)},
   contentType = "application/Excel"
 )
-  
+
 ```
 
 ```{r echo=FALSE}
@@ -423,21 +679,21 @@ mainPanel(
       renderText("This data tells you about various housing data in the current jurisdiction."),
       hr(),
       tabsetPanel(type = "tabs",
-                  tabPanel("Housing Units", DT::dataTableOutput("table_hu", width = "150%" )),
-                  tabPanel("Housing Costs", DT::dataTableOutput("table_hc", width = "150%" )),
-                  tabPanel("Vacancy Rates", DT::dataTableOutput("table_vr", width = "150%" ))
-      )
+                  tabPanel("Housing Units", DT::dataTableOutput("table_hu", width = "100%" )),
+                  tabPanel("Housing Costs", DT::dataTableOutput("table_hc", width = "100%" )),
+                  tabPanel("Vacancy Rates", DT::dataTableOutput("table_vr", width = "100%" ))
+      ),
+width = 12
 )
 
 ```
 
-
 ```{r echo=FALSE}
 
-# Occupation
+# Jobs
 
-numeric_occ <- c("People","Margin of Error")
-percent_occ <- c("Share")
+numeric_ind <- c("People","Margin of Error")
+percent_ind <- c("Share")
 list_length <- 10
 
 output$table_occ <- DT::renderDataTable({
@@ -466,30 +722,6 @@ output$plot_occ <- renderPlotly({
   ,tooltip = c("text"))
 })
 
-output$occ_heading <- renderText({
-  paste("Occupations: ",  input$Place, " Residents")
-})
-
-mainPanel(
-      h2(textOutput("occ_heading")),
-      renderText("This data tells you about the types of jobs people have."),
-      hr(),
-      tabsetPanel(type = "tabs",
-                  tabPanel("Plot", plotlyOutput("plot_occ", width = "150%")),
-                  tabPanel("Table", DT::dataTableOutput("table_occ", width = "150%" ))
-      )
-)
-
-```
-
-```{r echo=FALSE}
-
-# Industry
-
-numeric_ind <- c("People","Margin of Error")
-percent_ind <- c("Share")
-list_length <- 10
-
 output$table_ind <- DT::renderDataTable({
   datatable(create_industry_tbl(wa_places, input$Place,input$Year),rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets =1:3)))) %>% formatCurrency(numeric_ind, "", digits = 0) %>% formatPercentage(percent_ind, 1)
 })
@@ -516,8 +748,30 @@ output$plot_ind <- renderPlotly({
   ,tooltip = c("text"))
 })
 
+output$plot_income <- renderPlotly({
+  ggplotly(
+    ggplot(data=create_income_tbl(wa_places, input$Place,input$Year), 
+           aes(x=`Income`, 
+               y=`Share`,
+               text= paste0("<b>", "% of Total Households: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
+               )) +
+      geom_bar(stat="identity", color = "#8CC63E", fill = "#8CC63E" ) +
+      scale_y_continuous(labels = scales::percent, limits = c(0, 0.5))+
+      coord_flip() +
+      theme(legend.position = "none",
+        axis.title.y=element_blank(), 
+        axis.title.x=element_blank(),
+        axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_blank())
+  ,tooltip = c("text"))
+})
+
 output$ind_heading <- renderText({
-  paste("Industry: ",  input$Place, " Residents")
+  paste("Jobs and Income: ",  input$Place, " Residents")
 })
 
 mainPanel(
@@ -525,9 +779,11 @@ mainPanel(
       renderText("This data tells you about the types of industries that people work in."),
       hr(),
       tabsetPanel(type = "tabs",
-                  tabPanel("Plot", plotlyOutput("plot_ind", width = "150%")),
-                  tabPanel("Table", DT::dataTableOutput("table_ind", width = "150%" ))
-      )
+                  tabPanel("Occupations", plotlyOutput("plot_occ", width = "100%")),
+                  tabPanel("Industries", plotlyOutput("plot_ind", width = "100%")),
+                  tabPanel("Household Income",  plotlyOutput("plot_income", width = "100%"))
+      ),
+width = 12
 )
 
 ```
@@ -577,10 +833,11 @@ mainPanel(
       renderText("This data tells you about the mode of travel people use to get to work on a average workday."),
       hr(),
       tabsetPanel(type = "tabs",
-                  tabPanel("Plot", plotlyOutput("plot_ms", width = "150%")),
-                  tabPanel("Table", DT::dataTableOutput("table_ms", width = "150%" )),
-                  tabPanel("Map", selectInput("Mode","Select mode:",data_modes), leafletOutput("ms_map", width = "150%" ))
-      )
+                  tabPanel("Plot", plotlyOutput("plot_ms", width = "100%")),
+                  tabPanel("Table", DT::dataTableOutput("table_ms", width = "100%" )),
+                  tabPanel("Map", selectInput("Mode","Select mode:",data_modes), leafletOutput("ms_map", width = "100%" ))
+      ),
+width = 12
 )
 
 ```
@@ -623,16 +880,52 @@ output$tt_heading <- renderText({
   paste("Travel Time to Work: ",  input$Place, " Residents")
 })
 
+output$tt_map <- renderLeaflet({create_tt_map(all_tracts, input$Year, "Blues", input$Place, "Travel Time", "Minutes")})
+
 mainPanel(
       h2(textOutput("tt_heading")),
       renderText("This data tells you about the time it takes people to get to work on a average workday."),
       hr(),
       tabsetPanel(type = "tabs",
-                  tabPanel("Plot", plotlyOutput("plot_tt", width = "150%")),
-                  tabPanel("Table", DT::dataTableOutput("table_tt", width = "150%"))
-      )
+                  tabPanel("Plot", plotlyOutput("plot_tt", width = "100%")),
+                  tabPanel("Table", DT::dataTableOutput("table_tt", width = "100%")),
+                  tabPanel("Map", leafletOutput("tt_map", width = "100%" ))
+      ),
+width = 12
 )
 
 ```
 
+```{r echo=FALSE}
 
+# RTP Projects
+currency_rtp <- c("Cost")
+
+list_length <- 5
+
+output$rtp_heading <- renderText({
+  paste("Regional Transportation Plan Projects: ",  input$Place)
+})
+
+output$rtp_map <- renderLeaflet({create_project_map(input$Place)})
+
+output$table_rtp <- DT::renderDataTable({
+  datatable(create_project_table(input$Place), rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets = 3:5)))) %>% formatCurrency(currency_rtp , "$", digits = 0)
+})
+
+mainPanel(
+      h2(textOutput("rtp_heading")),
+      renderText("Larger scale regional investments planned through 2040 are included in the Regional Transportation Plan on the Regional Capacity Projects list."),
+      hr(),
+      renderText("Regional Capacity Projects are those projects adding capacity to the regional system above a pre-determined threshold, and include roadway, transit, bicycle/pedestrian and other project types. Projects meeting this threshold must be approved on the list before proceeding towards funding and implementation. Projects that are below this threshold are considered programmatic in the plan and are able to pursue funding and implementation with no further actions."),
+      hr(),
+      renderText("As part of the update, projects are requested to be either in the financially constrained plan or in the “Unprogrammed” portion of the plan. "),
+      hr(),      
+      tabsetPanel(type = "tabs",
+                  tabPanel("Table", DT::dataTableOutput("table_rtp", width = "100%")),
+                  tabPanel("Map", leafletOutput("rtp_map", width = "100%" ))
+      ),
+width = 12
+)
+
+```
