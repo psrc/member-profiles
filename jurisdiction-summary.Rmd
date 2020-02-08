@@ -43,55 +43,76 @@ library(leaflet)
 library(sp)
 library(rgdal)
 library(raster)
+library(dplyr)
+library(rgeos)
+
+# Various inputs and directories for the member profiles
 
 server_name <- "AWS-PROD-SQL\\COHO"
 database_name <- "Elmer"
 
-# Get the lat/lon for places to have as center points of maps
-city_points <- setDT(read.dbf('W:\\geodata\\political\\citypt.dbf', as.is = FALSE))
-city_points$zoom <- 12
-king <- as.data.table(list(CITYNAME="King County",COUNT=1,FIRST_CNTY="King",X_COORD=0,Y_COORD=0,lat=47.439,long=-121.879, zoom = 9))
-kitsap <- as.data.table(list(CITYNAME="Kitsap County",COUNT=1,FIRST_CNTY="Kitsap",X_COORD=0,Y_COORD=0,lat=47.591,long=-122.64, zoom = 9))
-pierce <- as.data.table(list(CITYNAME="Pierce County",COUNT=1,FIRST_CNTY="Pierce",X_COORD=0,Y_COORD=0,lat=47.031,long=-122.254, zoom = 9))
-snohomish <- as.data.table(list(CITYNAME="Snohomish County",COUNT=1,FIRST_CNTY="Snohomish",X_COORD=0,Y_COORD=0,lat=48.015,long=-121.77, zoom = 9))
-
-city_points <- rbind(city_points,king, kitsap,pierce,snohomish)
-
-# Add County to the name for the counties to avoid overlap with place names 
-city_points$FIRST_CNTY <- as.character(city_points$FIRST_CNTY)
-city_points$FIRST_CNTY[city_points$FIRST_CNTY == "King"] <- "King County"
-city_points$FIRST_CNTY[city_points$FIRST_CNTY == "Kitsap"] <- "Kitsap County"
-city_points$FIRST_CNTY[city_points$FIRST_CNTY == "Pierce"] <- "Pierce County"
-city_points$FIRST_CNTY[city_points$FIRST_CNTY == "Snohomish"] <- "Snohomish County"
+# Community / Places Shapefile
+community.shape <- readOGR(dsn='c:/coding/member-profiles/shapefiles',layer='communities_wgs_1984',stringsAsFactors = FALSE)
+community.shape$ZOOM <- as.integer(community.shape$ZOOM)
+community.point <- setDT(community.shape@data)
 
 # Census Tract Shapefile
-tract.shape <- readOGR(dsn='c:/shapefiles',layer='tract_2010_no_water_wgs1984')
-tract.shape$GEOID10 <- as.character(tract.shape$GEOID10)
+tract.shape <- readOGR(dsn='c:/coding/member-profiles/shapefiles',layer='tract_2010_no_water_wgs1984',stringsAsFactors = FALSE)
 
-# Project Shapefile
-rtp.shape <- readOGR(dsn='c:/shapefiles',layer='rtp_2040_wgs1984')
+# RTP and TIP Shapefiles
+rtp.shape <- readOGR(dsn='c:/coding/member-profiles/shapefiles',layer='rtp_2040_wgs1984',stringsAsFactors = FALSE)
+tip.shape <- readOGR(dsn='c:/coding/member-profiles/shapefiles',layer='tip_19_22_wgs1984',stringsAsFactors = FALSE)
+tip.shape$TotCost <- as.numeric(tip.shape$TotCost)
+tip.shape$EstComplet <- as.numeric(tip.shape$EstComplet)
 
-# City Shapefile
-city.shape <- readOGR(dsn='c:/shapefiles',layer='city_wgs1984')
-city.shape$CITYNAME <- as.character(city.shape$CITYNAME)
-city.shape$CNTYNAME <- as.character(city.shape$CNTYNAME)
+# Information need to clean table creation - Travel Time
+tt_var <- "B08303"
+tt_cols <- c("variable_description","estimate","margin_of_error")
+tt_total <- c("Total")
+tt_remove <- NULL
+tt_order <- c("Less than 5 minutes", "5 to 9 minutes","10 to 14 minutes","15 to 19 minutes","20 to 24 minutes","25 to 29 minutes","30 to 34 minutes","35 to 39 minutes","40 to 44 minutes","45 to 59 minutes","60 to 89 minutes","90 or more minutes")
+
+# Information need to clean table creation - Mode Share
+ms_var <- "COMMUTING TO WORK"
+ms_cols <- c("variable_description","estimate","margin_of_error")
+ms_total <- c("Workers 16+")
+ms_remove <- c("Mean Travel Time to Work")
+ms_order <- c("Drove Alone", "Carpooled", "Transit", "Walked", "Other", "Telework")
+
+# Information need to clean table creation - Occupations
+occ_var <- "OCCUPATION"
+occ_cols <- c("variable_description","estimate","margin_of_error")
+occ_total <- c("Civilian employed population 16+")
+occ_remove <- NULL
+occ_order <- c("Construction, Natural Resources & Maintenance","Management, Business, Science & Arts", "Production, Transportation & Material Moving", "Sales & Office", "Service")
+
+# Information need to clean table creation - Industry
+ind_var <- "INDUSTRY"
+ind_cols <- c("variable_description","estimate","margin_of_error")
+ind_total <- c("Civilian employed population 16+")
+ind_remove <- NULL
+ind_order <- c("Agriculture, forestry & mining", "Construction", "Education, Health Care & Social services", "Entertainment, Accommodations & Food services", "FIRES", "Information", "Manufacturing", "Other services", "Professional, Management & Administrative", "Public Administration", "Retail", "Transportation, Warehousing & Utilities","Wholesale")
+
+# Information need to clean table creation - Income
+inc_var <- c("DP03_0051","DP03_0052","DP03_0053","DP03_0054","DP03_0055","DP03_0056","DP03_0057","DP03_0058","DP03_0059","DP03_0060","DP03_0061")
+inc_cols <- c("variable_description","estimate","margin_of_error")
+inc_total <- c("Total households")
+inc_remove <- NULL
+inc_order <- c("less than 10k","10k to 15k","15k to 25k","25k to 35k","35k to 50k","50k to 75k","75k to 100k","100k to 150k","150k to 200k","more than 200k")
+
+# Functions for Member Profiles
 
 find_city_coordinates <- function(wrk_nm, wrk_typ) {
-  
-  wrk_coord <- as.numeric(city_points[CITYNAME == wrk_nm,sum(get(wrk_typ))])
+  wrk_coord <- as.numeric(community.point[NAME == wrk_nm,get(wrk_typ)])
   return(wrk_coord)
-  
 }
 
 find_city_county <- function(wrk_nm) {
-  
-  wrk_cnty <- as.character(city_points[CITYNAME == wrk_nm,FIRST_CNTY])
+  wrk_cnty <- as.character(community.point[NAME == wrk_nm,COUNTY])
   return(wrk_cnty)
-  
 }
 
 table_from_db <- function(srv_nm,db_nm,tbl_nm) {
-  
   db_con <- dbConnect(odbc::odbc(),
                       driver = "SQL Server",
                       server = srv_nm,
@@ -111,88 +132,58 @@ table_cleanup <- function(w_tbl,curr_cols,upd_cols) {
   return(w_tbl)
 }
 
-create_commute_tbl <- function(wrk_tbl,wrk_plc,wrk_yr) {
-  tbl <- wrk_tbl[place_name %in% wrk_plc & year %in% wrk_yr]
-  tbl <- tbl[census_table %in% "B08303"]
-  cols <- c("variable_description","estimate","margin_of_error")
-  tbl <-table_cleanup(tbl, c("variable_description","estimate","margin_of_error"), c("Travel Time (minutes)","People","Margin of Error"))
-  total_commuters <- as.integer(tbl[`Travel Time (minutes)` == "Total",sum(People)])
-  tbl$`Percent of Total Commuters` <- tbl$People / total_commuters
-  tbl <- tbl[`Travel Time (minutes)` != "Total"]
+create_summary_table <- function(w_tbl,w_plc,w_yr,w_cat,w_var,w_cols,w_tot,w_rem,w_ord) {
+  # Subset the table and add a share of the total results
+  tbl <- w_tbl[place_name %in% w_plc & year %in% w_yr & get(w_cat) %in% w_var]
+  tbl <- tbl[,..w_cols]
   
-  # Set the order of the Time Buckets
-  wrk_ord <- c("Less than 5 minutes", "5 to 9 minutes","10 to 14 minutes","15 to 19 minutes","20 to 24 minutes","25 to 29 minutes","30 to 34 minutes","35 to 39 minutes","40 to 44 minutes","45 to 59 minutes","60 to 89 minutes","90 or more minutes")
-  tbl$`Travel Time (minutes)` <- factor(tbl$`Travel Time (minutes)`, levels = wrk_ord)
-  tbl <- tbl[order(`Travel Time (minutes)`),]
+  # First Remove any extraneous columns if w_remove is not NULL
+  if (!is.null(w_rem)) {
+    tbl <- tbl[!(variable_description %in% w_rem)]
+  }
   
-  return(tbl)
-}
-
-create_modeshare_tbl <- function(wrk_tbl,wrk_plc,wrk_yr) {
-
-  tbl <- wrk_tbl[place_name %in% wrk_plc & year %in% wrk_yr]
-  tbl <- tbl[variable_category %in% "COMMUTING TO WORK"]
-  cols <- c("variable_description","estimate","margin_of_error")
-  tbl <-table_cleanup(tbl, c("variable_description","estimate","margin_of_error"), c("Mode","People","Margin of Error"))
-  tbl <- tbl[Mode != "Mean Travel Time to Work"]
-  total_commuters <- as.integer(tbl[Mode == "Workers 16+",sum(People)])
-  tbl$`Mode Share` <- tbl$People / total_commuters
-  tbl <- tbl[Mode != "Workers 16+"]
-  wrk_ord <- c("Drove Alone", "Carpooled", "Transit", "Walked", "Other", "Telework")
-  tbl$Mode <- factor(tbl$Mode, levels = wrk_ord)
-  tbl <- tbl[order(`Mode`),]
-  return(tbl)
-}
-
-create_occupation_tbl <- function(wrk_tbl,wrk_plc,wrk_yr) {
-
-  tbl <- wrk_tbl[place_name %in% wrk_plc & year %in% wrk_yr]
-  tbl <- tbl[variable_category %in% "OCCUPATION"]
-  cols <- c("variable_description","estimate","margin_of_error")
-  tbl <-table_cleanup(tbl, c("variable_description","estimate","margin_of_error"), c("Occupation","People","Margin of Error"))
-  total_workers <- as.integer(tbl[Occupation == "Civilian employed population 16 years and over",sum(People)])
-  tbl$`Share` <- tbl$People / total_workers
-  tbl <- tbl[Occupation != "Civilian employed population 16 years and over"]
-  return(tbl)
-}
-
-create_industry_tbl <- function(wrk_tbl,wrk_plc,wrk_yr) {
-
-  tbl <- wrk_tbl[place_name %in% wrk_plc & year %in% wrk_yr]
-  tbl <- tbl[variable_category %in% "INDUSTRY"]
-  cols <- c("variable_description","estimate","margin_of_error")
-  tbl <-table_cleanup(tbl, c("variable_description","estimate","margin_of_error"), c("Industry","People","Margin of Error"))
-  total_workers <- as.integer(tbl[Industry == "Civilian employed population 16+",sum(People)])
-  tbl$`Share` <- tbl$People / total_workers
-  tbl <- tbl[Industry != "Civilian employed population 16+"]
-  wrk_ord <- c("Agriculture, forestry & mining", "Construction", "Education, Health Care & Social services", "Entertainment, Accommodations & Food services", "FIRES", "Information", "Manufacturing", "Other services", "Professional, Management & Administrative", "Public Administration", "Retail", "Transportation, Warehousing & Utilities","Wholesale")
-  tbl$Industry <- factor(tbl$Industry, levels = wrk_ord)
-  tbl <- tbl[order(`Industry`),]  
+  # Calculate a Total to use in share calculations and then remove the total
+  total <- as.integer(tbl[variable_description == w_tot,sum(estimate)])
+  tbl$Share <- tbl$estimate / total
+  tbl <- tbl[!(variable_description %in% w_tot)]
   
-  return(tbl)
-}
-
-create_income_tbl <- function(wrk_tbl,wrk_plc,wrk_yr) {
-
-  tbl <- wrk_tbl[place_name %in% wrk_plc & year %in% wrk_yr]
-  inc_vars <- c("DP03_0051","DP03_0052","DP03_0053","DP03_0054","DP03_0055","DP03_0056","DP03_0057","DP03_0058","DP03_0059","DP03_0060","DP03_0061")
-  tbl <- tbl[variable_name %in% inc_vars]
-  cols <- c("variable_description","estimate","margin_of_error")
-  tbl <-table_cleanup(tbl, c("variable_description","estimate","margin_of_error"), c("Income","People","Margin of Error"))
-  total_workers <- as.integer(tbl[Income == "Total households",sum(People)])
-  tbl$`Share` <- tbl$People / total_workers
-  tbl <- tbl[Income != "Total households"]
-  wrk_ord <- c("less than 10k","10k to 15k","15k to 25k","25k to 35k","35k to 50k","50k to 75k","75k to 100k","100k to 150k","150k to 200k","more than 200k")
-  tbl$Income <- factor(tbl$Income, levels = wrk_ord)
-  tbl <- tbl[order(`Income`),] 
+  # Set the order of the table using factors
+  tbl$variable_description <- factor(tbl$variable_description, levels = w_ord)
+  tbl <- tbl[order(variable_description),]
+  
+  # Calculate Regional Shares for comparison
+  r_tbl <- w_tbl[place_name %in% c("King County","Kitsap County", "Pierce County", "Snohomish County") & year %in% w_yr & get(w_cat) %in% w_var]
+  r_tbl <- r_tbl[,..w_cols]
+  
+  # First Remove any extraneous columns if w_remove is not NULL
+  if (!is.null(w_rem)) {
+    r_tbl <- r_tbl[!(variable_description %in% w_rem)]
+  }
+  
+  # Combine County Results into a Regional Total
+  regional <- r_tbl %>% group_by(variable_description) %>% summarise(estimate = sum(estimate))
+  setDT(regional)
+  
+  # Calculate a Total to use in share calculations and then remove the total
+  total <- as.integer(regional[variable_description == w_tot,sum(estimate)])
+  regional$Region <- regional$estimate / total
+  regional <- regional[!(variable_description %in% w_tot)] 
+  f_cols <- c("variable_description","Region")
+  
+  # Set the order of the table using factors
+  regional$variable_description <- factor(regional$variable_description, levels = w_ord)
+  regional <- regional[order(variable_description),]
+  regional <- regional[,..f_cols]
+  
+  # Merge the Place and Region tables on variable description
+  tbl <- merge(tbl,regional,by="variable_description")
+  
   return(tbl)
 }
 
 return_estimate <- function(wrk_tbl,wrk_plc,wrk_yr,wrk_var, wrk_val, wrk_dec) {
-  
   wrk_result <- format(as.numeric(wrk_tbl[place_name %in% wrk_plc & year %in% wrk_yr & variable_name %in% wrk_var,sum(get(wrk_val))]), nsmall = wrk_dec, big.mark = ",")
   return(wrk_result)
-  
 }
 
 create_housing_tbl <- function(wrk_tbl,wrk_plc,wrk_yr,wrk_vars,wrk_ord) {
@@ -266,7 +257,7 @@ create_mode_map <- function(w_tbl, w_yr, w_color, w_mode, w_place, w_group, w_ti
   current_tbl$estimate_percent[current_tbl$estimate_percent <= 0] <- 0
   
   # Trim Tracts for current place
-  city <- city.shape[which(city.shape$CITYNAME %in% w_place),]
+  city <- community.shape[which(community.shape$NAME %in% w_place),]
   interim <- intersect(tract.shape, city)
   tract_ids <- unique(interim$GEOID10)
   
@@ -322,7 +313,7 @@ create_mode_map <- function(w_tbl, w_yr, w_color, w_mode, w_place, w_group, w_ti
               title = paste0(w_mode),
               labFormat = labelFormat(suffix = "%"),
               opacity = 1) %>%
-    setView(lng=find_city_coordinates(w_place,"long"), lat=find_city_coordinates(w_place,"lat"), zoom=find_city_coordinates(w_place,"zoom"))
+    setView(lng=find_city_coordinates(w_place,"INTPTLON"), lat=find_city_coordinates(w_place,"INTPTLAT"), zoom=find_city_coordinates(w_place,"ZOOM"))
   
   return(working_map)
 
@@ -334,7 +325,7 @@ create_tt_map <- function(w_tbl, w_yr, w_color, w_place, w_group, w_title) {
   current_tbl$estimate[current_tbl$estimate <= 0] <- 0
   
   # Trim Tracts for current place
-  city <- city.shape[which(city.shape$CITYNAME %in% w_place),]
+  city <- community.shape[which(community.shape$NAME %in% w_place),]
   interim <- intersect(tract.shape, city)
   tract_ids <- unique(interim$GEOID10)
   
@@ -384,7 +375,7 @@ create_tt_map <- function(w_tbl, w_yr, w_color, w_place, w_group, w_title) {
     addLegend("bottomright", pal=pal, values = current_value$estimate,
               title = "Mean Travel Time to Work (minutes)",
               opacity = 1) %>%
-    setView(lng=find_city_coordinates(w_place,"long"), lat=find_city_coordinates(w_place,"lat"), zoom=find_city_coordinates(w_place,"zoom"))
+    setView(lng=find_city_coordinates(w_place,"INTPTLON"), lat=find_city_coordinates(w_place,"INTPTLAT"), zoom=find_city_coordinates(w_place,"ZOOM"))
   
   return(working_map)
 
@@ -393,7 +384,7 @@ create_tt_map <- function(w_tbl, w_yr, w_color, w_place, w_group, w_title) {
 create_project_map <- function(w_place) {
   
   # First determine the city and trim city shapefile and project coverage to the city
-  city <- city.shape[which(city.shape$CITYNAME %in% w_place),]
+  city <- community.shape[which(community.shape$NAME %in% w_place),]
   interim <- intersect(rtp.shape, city)
   proj_ids <- unique(interim$mtpid)
   
@@ -411,7 +402,7 @@ create_project_map <- function(w_place) {
                   color = "#444444",
                   fillOpacity = 0.10,
                   group = "City Boundary")%>%
-        setView(lng=find_city_coordinates(w_place,"long"), lat=find_city_coordinates(w_place,"lat"), zoom=find_city_coordinates(w_place,"zoom"))
+        setView(lng=find_city_coordinates(w_place,"INTPTLON"), lat=find_city_coordinates(w_place,"INTPTLAT"), zoom=find_city_coordinates(w_place,"ZOOM"))
   
   } else {
   
@@ -471,7 +462,67 @@ create_project_map <- function(w_place) {
                     fillColor = "#00A7A0",
                     group = "Unprogrammed Projects") %>%
 
-        setView(lng=find_city_coordinates(w_place,"long"), lat=find_city_coordinates(w_place,"lat"), zoom=find_city_coordinates(w_place,"zoom"))
+        setView(lng=find_city_coordinates(w_place,"INTPTLON"), lat=find_city_coordinates(w_place,"INTPTLAT"), zoom=find_city_coordinates(w_place,"ZOOM"))
+  }
+  
+  return(working_map)
+
+}
+
+create_tip_map <- function(w_place) {
+  
+  # First determine the city and trim city shapefile and project coverage to the city
+  city <- community.shape[which(community.shape$NAME %in% w_place),]
+  interim <- intersect(tip.shape, city)
+  proj_ids <- unique(interim$ProjNo)
+  
+  if (is.null(interim) == TRUE) {
+    
+      working_map <- leaflet() %>% 
+        addProviderTiles(providers$CartoDB.Positron) %>%
+        addLayersControl(baseGroups = c("Base Map"),
+                        overlayGroups = c("TIP Projects","City Boundary"),
+                        options = layersControlOptions(collapsed = FALSE)) %>%
+        addPolygons(data = city,
+                  fillColor = "76787A",
+                  weight = 1,
+                  opacity = 1.0,
+                  color = "#444444",
+                  fillOpacity = 0.10,
+                  group = "City Boundary")%>%
+        setView(lng=find_city_coordinates(w_place,"INTPTLON"), lat=find_city_coordinates(w_place,"INTPTLAT"), zoom=find_city_coordinates(w_place,"ZOOM"))
+  
+  } else {
+  
+      tip.trimmed <- tip.shape[which(tip.shape$ProjNo %in% proj_ids),]
+
+      labels <- paste0("<b>","Project Sponsor: ", "</b>",tip.trimmed$PlaceShort,
+                      "<b> <br>",paste0("Project Title: "), "</b>", tip.trimmed$ProjectTit,
+                      "<b> <br>",paste0("Project Cost: $"), "</b>", prettyNum(round(tip.trimmed$TotCost, 0), big.mark = ","),
+                      "<b> <br>",paste0("Type of Improvement: "), "</b>", tip.trimmed$ImproveTyp,
+                      "<b> <br>",paste0("Project Completion: "), "</b>", tip.trimmed$EstComplet) %>% lapply(htmltools::HTML)
+  
+      # Create Map
+      working_map <- leaflet() %>% 
+        addProviderTiles(providers$CartoDB.Positron) %>%
+        addLayersControl(baseGroups = c("Base Map"),
+                        overlayGroups = c("TIP Projects","City Boundary"),
+                        options = layersControlOptions(collapsed = FALSE)) %>%
+        addPolygons(data = city,
+                    fillColor = "76787A",
+                    weight = 4,
+                    opacity = 1.0,
+                    color = "#91268F",
+                    dashArray = "4",
+                    fillOpacity = 0.0,
+                    group = "City Boundary")%>% 
+        addPolylines(data = tip.trimmed,
+                    color = "#91268F",
+                    weight = 4,
+                    label = labels,
+                    fillColor = "#91268F",
+                    group = "TIP Projects") %>%
+        setView(lng=find_city_coordinates(w_place,"INTPTLON"), lat=find_city_coordinates(w_place,"INTPTLAT"), zoom=find_city_coordinates(w_place,"ZOOM"))
   }
   
   return(working_map)
@@ -481,7 +532,7 @@ create_project_map <- function(w_place) {
 create_project_table <- function(w_place) {
   
   # First determine the city and trim city shapefile and project coverage to the city
-  city <- city.shape[which(city.shape$CITYNAME %in% w_place),]
+  city <- community.shape[which(community.shape$NAME %in% w_place),]
   rtp.trimmed <- intersect(rtp.shape, city)
   orig_cols <- c("mtpid","Sponsor","Title","Completion","MTPStatus","TotalCost")
   upd_nms <- c("ID","Sponsor","Title","Project Completion","Project Status","Cost")
@@ -515,6 +566,8 @@ variables <- table_cleanup(variable_dim,c("variable_dim_id","census_year","censu
 census_data <- merge(variable_facts,variables, by="variable_dim_id")
 census_data <- merge(census_data,geography, by="geography_dim_id")
 
+# Various items to cleanup in tables from database for clean presentation - should get incorporated into DB
+
 # Clean up Mode Names
 census_data$variable_description[census_data$variable_name == "DP03_0018"] <- "Workers 16+"
 census_data$variable_description[census_data$variable_name == "DP03_0019"] <- "Drove Alone"
@@ -524,6 +577,14 @@ census_data$variable_description[census_data$variable_name == "DP03_0022"] <- "W
 census_data$variable_description[census_data$variable_name == "DP03_0023"] <- "Other"
 census_data$variable_description[census_data$variable_name == "DP03_0024"] <- "Telework"
 census_data$variable_description[census_data$variable_name == "DP03_0025"] <- "Mean Travel Time to Work"
+
+# Clean up Occupation Names
+census_data$variable_description[census_data$variable_name == "DP03_0026"] <- "Civilian employed population 16+"
+census_data$variable_description[census_data$variable_name == "DP03_0027"] <- "Management, Business, Science & Arts"
+census_data$variable_description[census_data$variable_name == "DP03_0028"] <- "Service"
+census_data$variable_description[census_data$variable_name == "DP03_0029"] <- "Sales & Office"
+census_data$variable_description[census_data$variable_name == "DP03_0030"] <- "Construction, Natural Resources & Maintenance"
+census_data$variable_description[census_data$variable_name == "DP03_0031"] <- "Production, Transportation & Material Moving"
 
 # Clean up Industry Names
 census_data$variable_description[census_data$variable_name == "DP03_0032"] <- "Civilian employed population 16+"
@@ -562,26 +623,21 @@ census_data$place_name[census_data$place_name == "Snohomish" & census_data$place
 
 # Clean up workspace
 rm("geography_dim","variable_dim","variable_facts","geography","variables") 
-```
 
-```{r data_profiles, include=FALSE}
 # Trim data to Washington and Get a Clean list of places for analysis
 wa_places <- census_data[place_state %in% "WA" & census_product %in% "5yr"]
 wa_places$place_type <- str_trim(wa_places$place_type, "right")
 wa_places <- wa_places[place_type %in% c("pl","co")]
-only_places <- wa_places[place_type %in% c("pl")]
 
 # Find Unique List of Modes
-modes <- only_places[variable_category %in% "COMMUTING TO WORK"]
+modes <- wa_places[variable_category %in% "COMMUTING TO WORK"]
 modes <- modes[variable_description != "Workers 16+"]
 modes <- modes[variable_description != "Mean Travel Time to Work"]
 
 data_years <- unique(wa_places$year)
-data_places <- unique(only_places$place_name)
+data_places <- unique(wa_places$place_name)
 data_modes <- unique(modes$variable_description)
-```
 
-```{r tract_ms_layers, include=FALSE}
 all_tracts <- census_data[place_state %in% "WA" & census_product %in% "5yr" & place_type %in% "tr " & variable_category %in% "COMMUTING TO WORK"]
 cols_to_keep <- c("year","variable_name","variable_description","estimate","estimate_percent","geoid")
 all_tracts <- all_tracts[,..cols_to_keep]
@@ -634,14 +690,14 @@ output$selectedAvgTT <- renderText({
 output$wrk_map <- renderLeaflet({
   leaflet() %>%
     addTiles() %>%
-    addPolygons(data = city.shape[which(city.shape$CITYNAME %in% input$Place),],
+    addPolygons(data = community.shape[which(community.shape$NAME %in% input$Place),],
                 fillColor = "76787A",
                 weight = 4,
                 opacity = 1.0,
                 color = "#91268F",
                 dashArray = "4",
                 fillOpacity = 0.0)%>%
-    setView(lng=find_city_coordinates(input$Place,"long"), lat=find_city_coordinates(input$Place,"lat"), zoom=find_city_coordinates(input$Place,"zoom"))
+    setView(lng=find_city_coordinates(input$Place,"INTPTLON"), lat=find_city_coordinates(input$Place,"INTPTLAT"), zoom=find_city_coordinates(input$Place,"ZOOM"))
 })
 
 output$downloadData <- downloadHandler(
@@ -656,18 +712,18 @@ output$downloadData <- downloadHandler(
 
 # Housing 
 cols_to_format <- c("Estimate.x","Margin of Error.x","Estimate.y","Margin of Error.y")
-list_length <- 10
+house_length <- 10
 
 output$table_hu <- DT::renderDataTable({
-  datatable(create_housing_tbl(wa_places, input$Place,input$Year, list("DP04_0001","DP04_0002"),c("Total housing units", "Occupied housing units")), container = create_table_container("Type",c(input$Place,find_city_county(input$Place)),c("Estimate","Margin of Error")), rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(cols_to_format, "", digits = 0)
+  datatable(create_housing_tbl(wa_places, input$Place,input$Year, list("DP04_0001","DP04_0002"),c("Total housing units", "Occupied housing units")), container = create_table_container("Type",c(input$Place,find_city_county(input$Place)),c("Estimate","Margin of Error")), rownames = FALSE, options = list(pageLength = house_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(cols_to_format, "", digits = 0)
 })
 
 output$table_hc <- DT::renderDataTable({
-  datatable(create_housing_tbl(wa_places, input$Place,input$Year, list("DP04_0101","DP04_0134"),c("Median Rent", "Median Mortgage")), container = create_table_container("Type",c(input$Place,find_city_county(input$Place)),c("Estimate","Margin of Error")), rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(cols_to_format, "$", digits = 0)
+  datatable(create_housing_tbl(wa_places, input$Place,input$Year, list("DP04_0101","DP04_0134"),c("Median Rent", "Median Mortgage")), container = create_table_container("Type",c(input$Place,find_city_county(input$Place)),c("Estimate","Margin of Error")), rownames = FALSE, options = list(pageLength = house_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(cols_to_format, "$", digits = 0)
 })
 
 output$table_vr <- DT::renderDataTable({
-  datatable(create_housing_tbl(wa_places, input$Place,input$Year, list("DP04_0004","DP04_0005"),c("Rental vacancy rate", "Homeowner vacancy rate")), container = create_table_container("Type",c(input$Place,find_city_county(input$Place)),c("Estimate","Margin of Error")), rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(cols_to_format, "", digits = 1)  %>% formatString(cols_to_format, suffix = "%")
+  datatable(create_housing_tbl(wa_places, input$Place,input$Year, list("DP04_0004","DP04_0005"),c("Rental vacancy rate", "Homeowner vacancy rate")), container = create_table_container("Type",c(input$Place,find_city_county(input$Place)),c("Estimate","Margin of Error")), rownames = FALSE, options = list(pageLength = house_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(cols_to_format, "", digits = 1)  %>% formatString(cols_to_format, suffix = "%")
 })
 
 output$housing_heading <- renderText({
@@ -691,19 +747,26 @@ width = 12
 ```{r echo=FALSE}
 
 # Jobs
-
-numeric_ind <- c("People","Margin of Error")
-percent_ind <- c("Share")
-list_length <- 10
+numeric_ind <- c("estimate","margin_of_error")
+percent_ind <- c("Share","Region")
+job_length <- 10
 
 output$table_occ <- DT::renderDataTable({
-  datatable(create_occupation_tbl(wa_places, input$Place,input$Year),rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets =1:3)))) %>% formatCurrency(numeric_occ, "", digits = 0) %>% formatPercentage(percent_occ, 1)
+  datatable(create_summary_table(wa_places,input$Place,input$Year,"variable_category",occ_var,occ_cols,occ_total,occ_remove,occ_order),rownames = FALSE, options = list(pageLength = job_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_ind, "", digits = 0) %>% formatPercentage(percent_ind, 1)
+})
+
+output$table_ind <- DT::renderDataTable({
+  datatable(create_summary_table(wa_places,input$Place,input$Year,"variable_category",ind_var,ind_cols,ind_total,ind_remove,ind_order),rownames = FALSE, options = list(pageLength = job_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_ind, "", digits = 0) %>% formatPercentage(percent_ind, 1)
+})
+
+output$table_inc <- DT::renderDataTable({
+  datatable(create_summary_table(wa_places,input$Place,input$Year,"variable_name",inc_var,inc_cols,inc_total,inc_remove,inc_order),rownames = FALSE, options = list(pageLength = job_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_ind, "", digits = 0) %>% formatPercentage(percent_ind, 1)
 })
 
 output$plot_occ <- renderPlotly({
   ggplotly(
-    ggplot(data=create_occupation_tbl(wa_places, input$Place,input$Year), 
-           aes(x=`Occupation`, 
+    ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"variable_category",occ_var,occ_cols,occ_total,occ_remove,occ_order), 
+           aes(x=`variable_description`, 
                y=`Share`,
                text= paste0("<b>", "% of Total Workers: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
                )) +
@@ -722,14 +785,12 @@ output$plot_occ <- renderPlotly({
   ,tooltip = c("text"))
 })
 
-output$table_ind <- DT::renderDataTable({
-  datatable(create_industry_tbl(wa_places, input$Place,input$Year),rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets =1:3)))) %>% formatCurrency(numeric_ind, "", digits = 0) %>% formatPercentage(percent_ind, 1)
-})
+
 
 output$plot_ind <- renderPlotly({
   ggplotly(
-    ggplot(data=create_industry_tbl(wa_places, input$Place,input$Year), 
-           aes(x=`Industry`, 
+    ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"variable_category",ind_var,ind_cols,ind_total,ind_remove,ind_order), 
+           aes(x=`variable_description`, 
                y=`Share`,
                text= paste0("<b>", "% of Total Workers: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
                )) +
@@ -750,8 +811,8 @@ output$plot_ind <- renderPlotly({
 
 output$plot_income <- renderPlotly({
   ggplotly(
-    ggplot(data=create_income_tbl(wa_places, input$Place,input$Year), 
-           aes(x=`Income`, 
+    ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"variable_name",inc_var,inc_cols,inc_total,inc_remove,inc_order), 
+           aes(x=`variable_description`, 
                y=`Share`,
                text= paste0("<b>", "% of Total Households: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
                )) +
@@ -791,21 +852,20 @@ width = 12
 ```{r echo=FALSE}
 
 # Mode Share
-
-numeric_ms <- c("People","Margin of Error")
-percent_ms <- c("Mode Share")
-list_length <- 10
+numeric_ms <- c("estimate","margin_of_error")
+percent_ms <- c("Share","Region")
+mode_length <- 10
 
 output$table_ms <- DT::renderDataTable({
-  datatable(create_modeshare_tbl(wa_places, input$Place,input$Year),rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets =1:3)))) %>% formatCurrency(numeric_ms, "", digits = 0) %>% formatPercentage(percent_ms, 1)
+  datatable(create_summary_table(wa_places,input$Place,input$Year,"variable_category",ms_var,ms_cols,ms_total,ms_remove,ms_order),rownames = FALSE, options = list(pageLength = mode_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_ms, "", digits = 0) %>% formatPercentage(percent_ms, 1)
 })
 
 output$plot_ms <- renderPlotly({
   ggplotly(
-    ggplot(data=create_modeshare_tbl(wa_places, input$Place,input$Year), 
-           aes(x=`Mode`, 
-               y=`Mode Share`,
-               text= paste0("<b>", "% of Total Commuters: ","</b>",prettyNum(round(`Mode Share`*100, 1), big.mark = ","),"%")
+    ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"variable_category",ms_var,ms_cols,ms_total,ms_remove,ms_order), 
+           aes(x=`variable_description`, 
+               y=`Share`,
+               text= paste0("<b>", "% of Total Commuters: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
                )) +
       geom_bar(stat="identity", color = "#8CC63E", fill = "#8CC63E" ) +
       scale_y_continuous(labels = scales::percent, limits = c(0, 1))+
@@ -845,21 +905,20 @@ width = 12
 ```{r echo=FALSE}
 
 # Travel Time
-
-numeric_tt <- c("People","Margin of Error")
-percent_tt <- c("Percent of Total Commuters")
-list_length <- 15
+numeric_tt <- c("estimate","margin_of_error")
+percent_tt <- c("Share","Region")
+tt_length <- 15
 
 output$table_tt <- DT::renderDataTable({
-  datatable(create_commute_tbl(wa_places, input$Place,input$Year),rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets =1:3)))) %>% formatCurrency(numeric_tt, "", digits = 0) %>% formatPercentage(percent_tt, 1)
+  datatable(create_summary_table(wa_places,input$Place,input$Year,"census_table",tt_var, tt_cols,tt_total,tt_remove,tt_order),rownames = FALSE, options = list(pageLength = tt_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_tt, "", digits = 0) %>% formatPercentage(percent_tt, 1)
 })
 
 output$plot_tt <- renderPlotly({
   ggplotly(
-    ggplot(data=create_commute_tbl(wa_places, input$Place,input$Year), 
-           aes(x=`Travel Time (minutes)`, 
-               y=`Percent of Total Commuters`,
-               text= paste0("<b>", "% of Total Commuters: ","</b>",prettyNum(round(`Percent of Total Commuters`*100, 1), big.mark = ","),"%")
+    ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"census_table",tt_var, tt_cols,tt_total,tt_remove,tt_order), 
+           aes(x=`variable_description`, 
+               y=`Share`,
+               text= paste0("<b>", "% of Total Commuters: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
                )) +
       geom_bar(stat="identity", color = "#F05A28", fill = "#F05A28" ) +
       scale_y_continuous(labels = scales::percent, limits = c(0, 0.5))+
@@ -900,7 +959,6 @@ width = 12
 
 # RTP Projects
 currency_rtp <- c("Cost")
-
 list_length <- 5
 
 output$rtp_heading <- renderText({
@@ -908,6 +966,7 @@ output$rtp_heading <- renderText({
 })
 
 output$rtp_map <- renderLeaflet({create_project_map(input$Place)})
+output$tip_map <- renderLeaflet({create_tip_map(input$Place)})
 
 output$table_rtp <- DT::renderDataTable({
   datatable(create_project_table(input$Place), rownames = FALSE, options = list(pageLength = list_length, columnDefs = list(list(className = 'dt-center', targets = 3:5)))) %>% formatCurrency(currency_rtp , "$", digits = 0)
@@ -923,7 +982,8 @@ mainPanel(
       hr(),      
       tabsetPanel(type = "tabs",
                   tabPanel("Table", DT::dataTableOutput("table_rtp", width = "100%")),
-                  tabPanel("Map", leafletOutput("rtp_map", width = "100%" ))
+                  tabPanel("TIP", leafletOutput("tip_map", width = "100%" )),
+                  tabPanel("RTP", leafletOutput("rtp_map", width = "100%" ))
       ),
 width = 12
 )
