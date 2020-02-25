@@ -21,6 +21,18 @@ h3 {
   font-size: 18pt;
 }
 
-#table_rtp {
+.datatables {
   font-size: 12pt; 
+}
+
+#CensusBackground {
+  font-size: 12pt;
+}
+
+.navbar {
+  font-size: 20pt;
+  background-color: white;
+  padding-top: 25px;
+  padding-bottom: 50px;
+  padding-left: 250px;
 }
