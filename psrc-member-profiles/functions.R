@@ -81,136 +81,6 @@ create_summary_table <- function(w_tbl,w_plc,w_yr,w_cat,w_var,w_cols,w_tot,w_rem
   return(tbl)
 }
 
-create_mode_map <- function(w_tbl, w_yr, w_color, w_mode, w_place, w_group, w_title) {
-  
-  current_tbl <- w_tbl[year %in% w_yr & variable_description %in% w_mode]
-  current_tbl$estimate_percent[current_tbl$estimate_percent <= 0] <- 0
-  
-  # Trim Tracts for current place
-  city <- community.shape[which(community.shape$NAME %in% w_place),]
-  interim <- intersect(tract.shape, city)
-  tract_ids <- unique(interim$GEOID10)
-  
-  tracts.trimmed <- tract.shape[which(tract.shape$GEOID10 %in% tract_ids),]
-  current_value  <- sp::merge(tracts.trimmed, current_tbl, by.x = "GEOID10", by.y = "geoid")
-  
-  # Determine Bins
-  rng <- range(current_value$estimate_percent)
-  max_bin <- max(abs(rng))
-  round_to <- 10^floor(log10(max_bin))
-  max_bin <- ceiling(max_bin/round_to)*round_to
-  breaks <- (max_bin*c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1))
-  bins <- c(0, breaks)
-  
-  pal <- colorBin(w_color, domain = current_value$estimate_percent, bins = bins)
-  
-  labels <- paste0("<b>",w_group,": ", "</b>",current_value$variable_description,
-                   "<b> <br>",paste0(w_title,": "), "</b>", prettyNum(round(current_value$estimate_percent, 1), big.mark = ","),"%") %>% lapply(htmltools::HTML)
-  
-  # Create Map
-  working_map <- leaflet(data = current_value) %>% 
-    addProviderTiles(providers$CartoDB.Positron) %>%
-    addLayersControl(baseGroups = c("Base Map"),
-                     overlayGroups = c("Census Tracts","City Boundary"),
-                     options = layersControlOptions(collapsed = FALSE)) %>%
-    addPolygons(data = city,
-                fillColor = "76787A",
-                weight = 4,
-                opacity = 1.0,
-                color = "#91268F",
-                dashArray = "4",
-                fillOpacity = 0.0,
-                group = "City Boundary")%>% 
-    addPolygons(fillColor = pal(current_value$estimate_percent),
-                weight = 1.0,
-                opacity = 1,
-                color = "white",
-                dashArray = "3",
-                fillOpacity = 0.7,
-                highlight = highlightOptions(
-                  weight =5,
-                  color = "76787A",
-                  dashArray ="",
-                  fillOpacity = 0.7,
-                  bringToFront = TRUE),
-                label = labels,
-                labelOptions = labelOptions(
-                  style = list("font-weight" = "normal", padding = "3px 8px"),
-                  textsize = "15px",
-                  direction = "auto"),
-                group = "Census Tracts")%>%
-    addLegend("bottomright", pal=pal, values = current_value$estimate_percent,
-              title = paste0(w_mode),
-              labFormat = labelFormat(suffix = "%"),
-              opacity = 1) %>%
-    setView(lng=find_place_data(w_place,"INTPTLON"), lat=find_place_data(w_place,"INTPTLAT"), zoom=find_place_data(w_place,"ZOOM"))
-    
-  return(working_map)
-  
-}
-
-create_tt_map <- function(w_tbl, w_yr, w_color, w_place, w_group, w_title) {
-  
-  current_tbl <- w_tbl[year %in% w_yr & variable_name %in% "DP03_0025"]
-  current_tbl$estimate[current_tbl$estimate <= 0] <- 0
-  
-  # Trim Tracts for current place
-  city <- community.shape[which(community.shape$NAME %in% w_place),]
-  interim <- intersect(tract.shape, city)
-  tract_ids <- unique(interim$GEOID10)
-  
-  tracts.trimmed <- tract.shape[which(tract.shape$GEOID10 %in% tract_ids),]
-  current_value  <- sp::merge(tracts.trimmed, current_tbl, by.x = "GEOID10", by.y = "geoid")  
-  
-  breaks <- c(10, 20, 30, 40, 50, 60, 90, 120)
-  bins <- c(0, breaks)
-  
-  pal <- colorBin(w_color, domain = current_value$estimate, bins = bins)
-  
-  labels <- paste0("<b>",w_group,": ", "</b>",current_value$variable_description,
-                   "<b> <br>",paste0(w_title,": "), "</b>", prettyNum(round(current_value$estimate, 1), big.mark = ",")) %>% lapply(htmltools::HTML)
-  
-  # Create Map
-  working_map <- leaflet(data = current_value) %>% 
-    addProviderTiles(providers$CartoDB.Positron) %>%
-    addLayersControl(baseGroups = c("Base Map"),
-                     overlayGroups = c("Census Tracts","City Boundary"),
-                     options = layersControlOptions(collapsed = FALSE)) %>%
-    addPolygons(data = city,
-                fillColor = "76787A",
-                weight = 4,
-                opacity = 1.0,
-                color = "#91268F",
-                dashArray = "4",
-                fillOpacity = 0.0,
-                group = "City Boundary")%>% 
-    addPolygons(fillColor = pal(current_value$estimate),
-                weight = 0.5,
-                opacity = 1,
-                color = "white",
-                dashArray = "3",
-                fillOpacity = 0.7,
-                highlight = highlightOptions(
-                  weight =5,
-                  color = "76787A",
-                  dashArray ="",
-                  fillOpacity = 0.7,
-                  bringToFront = TRUE),
-                label = labels,
-                labelOptions = labelOptions(
-                  style = list("font-weight" = "normal", padding = "3px 8px"),
-                  textsize = "15px",
-                  direction = "auto"),
-                group = "Census Tracts")%>%
-    addLegend("bottomright", pal=pal, values = current_value$estimate,
-              title = "Mean Travel Time to Work (minutes)",
-              opacity = 1) %>%
-    setView(lng=find_place_data(w_place,"INTPTLON"), lat=find_place_data(w_place,"INTPTLAT"), zoom=find_place_data(w_place,"ZOOM"))
-  
-  return(working_map)
-  
-}
-
 create_project_map <- function(w_place) {
   
   # First determine the city and trim city shapefile and project coverage to the city
@@ -536,6 +406,77 @@ create_congestion_map <- function(w_place, w_hr, w_yr, w_mo) {
       
       setView(lng=find_place_data(w_place,"INTPTLON"), lat=find_place_data(w_place,"INTPTLAT"), zoom=find_place_data(w_place,"ZOOM"))
   }
+  
+  return(working_map)
+  
+}
+
+create_tract_map_pick_variable <- function(w_tbl, w_var, w_yr, w_color, w_place, w_type, w_var_type, w_title, w_pre, w_suff) {
+  
+  # Trim full Tract table to Variable and Year of interest
+  current_tbl <- w_tbl[year %in% w_yr & get(w_var_type) %in% w_var]
+  cols <- c("geoid",w_type)
+  current_tbl <- current_tbl[,..cols]
+  setnames(current_tbl,c("geoid","value"))
+  current_tbl$value[current_tbl$value <= 0] <- 0
+  
+  # Trim Tracts for current place
+  city <- community.shape[which(community.shape$NAME %in% w_place),]
+  interim <- intersect(tract.shape, city)
+  tract_ids <- unique(interim$GEOID10)
+  
+  tracts.trimmed <- tract.shape[which(tract.shape$GEOID10 %in% tract_ids),]
+  current_value  <- sp::merge(tracts.trimmed, current_tbl, by.x = "GEOID10", by.y = "geoid")
+  
+  # Determine Bins
+  rng <- range(current_value$value)
+  max_bin <- max(abs(rng))
+  round_to <- 10^floor(log10(max_bin))
+  max_bin <- ceiling(max_bin/round_to)*round_to
+  breaks <- (max_bin*c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1))
+  bins <- c(0, breaks)
+  
+  pal <- colorBin(w_color, domain = current_value$value, bins = bins)
+  
+  labels <- paste0("<b>",paste0(w_title,": "), "</b>", w_pre, prettyNum(round(current_value$value, 1), big.mark = ","),w_suff) %>% lapply(htmltools::HTML)
+  
+  # Create Map
+  working_map <- leaflet(data = current_value, options = leafletOptions(zoomControl=FALSE)) %>% 
+    addProviderTiles(providers$CartoDB.Positron) %>%
+    addLayersControl(baseGroups = c("Base Map"),
+                     overlayGroups = c("Census Tracts","City Boundary"),
+                     options = layersControlOptions(collapsed = FALSE)) %>%
+    addPolygons(data = city,
+                fillColor = "76787A",
+                weight = 4,
+                opacity = 1.0,
+                color = "#91268F",
+                dashArray = "4",
+                fillOpacity = 0.0,
+                group = "City Boundary")%>% 
+    addPolygons(fillColor = pal(current_value$value),
+                weight = 1.0,
+                opacity = 1,
+                color = "white",
+                dashArray = "3",
+                fillOpacity = 0.7,
+                highlight = highlightOptions(
+                  weight =5,
+                  color = "76787A",
+                  dashArray ="",
+                  fillOpacity = 0.7,
+                  bringToFront = TRUE),
+                label = labels,
+                labelOptions = labelOptions(
+                  style = list("font-weight" = "normal", padding = "3px 8px"),
+                  textsize = "15px",
+                  direction = "auto"),
+                group = "Census Tracts")%>%
+    addLegend("bottomright", pal=pal, values = current_value$value,
+              title = paste0(w_title),
+              labFormat = labelFormat(prefix = w_pre, suffix = w_suff),
+              opacity = 1) %>%
+    setView(lng=find_place_data(w_place,"INTPTLON"), lat=find_place_data(w_place,"INTPTLAT"), zoom=find_place_data(w_place,"ZOOM"))
   
   return(working_map)
   

@@ -226,7 +226,7 @@ race_var <- c("DP05_0063","DP05_0064","DP05_0065","DP05_0066","DP05_0067","DP05_
 race_cols <- c("variable_description","estimate","margin_of_error")
 race_total <- c("Total population")
 race_remove <- NULL
-race_order <- c("White","Black or African American","American Indian and Alaska Native","Asian","Native Hawaiian and Other Pacific Islander","Some other race")
+race_order <- c("White ","Black or African American ","American Indian and Alaska Native ","Asian ","Native Hawaiian and Other Pacific Islander ","Some other race ")
 
 numeric_race <- c("estimate","margin_of_error")
 percent_race <- c("Share","Region")
@@ -363,15 +363,27 @@ census_data$variable_description[census_data$variable_name == "DP05_0017"] <- "m
 
 # Clean up Race Descriptions
 census_data$variable_description[census_data$variable_name == "DP05_0063"] <- "Total population"
-census_data$variable_description[census_data$variable_name == "DP05_0064"] <- "White"
-census_data$variable_description[census_data$variable_name == "DP05_0065"] <- "Black or African American"
-census_data$variable_description[census_data$variable_name == "DP05_0066"] <- "American Indian and Alaska Native"
-census_data$variable_description[census_data$variable_name == "DP05_0067"] <- "Asian"
-census_data$variable_description[census_data$variable_name == "DP05_0068"] <- "Native Hawaiian and Other Pacific Islander"
-census_data$variable_description[census_data$variable_name == "DP05_0069"] <- "Some other race"
+census_data$variable_description[census_data$variable_name == "DP05_0064"] <- "White "
+census_data$variable_description[census_data$variable_name == "DP05_0065"] <- "Black or African American "
+census_data$variable_description[census_data$variable_name == "DP05_0066"] <- "American Indian and Alaska Native "
+census_data$variable_description[census_data$variable_name == "DP05_0067"] <- "Asian "
+census_data$variable_description[census_data$variable_name == "DP05_0068"] <- "Native Hawaiian and Other Pacific Islander "
+census_data$variable_description[census_data$variable_name == "DP05_0069"] <- "Some other race "
+
+# Clean up Disability Descriptions
+census_data$variable_description[census_data$variable_name == "DP02_0073"] <- "< 18 with a disability"
+census_data$variable_description[census_data$variable_name == "DP02_0075"] <- "18 to 65 with a disability"
+census_data$variable_description[census_data$variable_name == "DP02_0077"] <- "over 65 with a disability"
+census_data$variable_description[census_data$variable_name == "DP02_0071"] <- "All Ages with a disability"
 
 # Clean up workspace
 rm("geography_dim","variable_dim","variable_facts","geography","variables") 
+
+##################################################################################
+##################################################################################
+### Cleaned place tables from Database used in App
+##################################################################################
+##################################################################################
 
 # Trim data to Washington and Get a Clean list of places for analysis
 wa_places <- census_data[place_state %in% "WA" & census_product %in% "5yr"]
@@ -384,14 +396,27 @@ modes <- wa_places[variable_category %in% "COMMUTING TO WORK"]
 modes <- modes[variable_description != "Workers 16+"]
 modes <- modes[variable_description != "Mean Travel Time to Work"]
 
+# Find Unique List of Disability Groups
+disabled <- wa_places[variable_name %in% c("DP02_0073","DP02_0075","DP02_0077","DP02_0071")]
+race <- wa_places[variable_name %in% c("DP05_0064","DP05_0065","DP05_0066","DP05_0067","DP05_0068","DP05_0069")]
+
 data_years <- unique(only_places$year)
 data_places <- unique(only_places$place_name)
 data_modes <- unique(modes$variable_description)
+data_disability <- unique(disabled$variable_description)
+data_race <- unique(race$variable_description)
 
-all_tracts <- census_data[place_state %in% "WA" & census_product %in% "5yr" & place_type %in% "tr " & variable_category %in% "COMMUTING TO WORK"]
+##################################################################################
+##################################################################################
+### Cleaned tract table from Database used in App
+##################################################################################
+##################################################################################
 cols_to_keep <- c("year","variable_name","variable_description","estimate","estimate_percent","geoid")
-all_tracts <- all_tracts[,..cols_to_keep]
+wa_tracts <- census_data[place_state %in% "WA" & census_product %in% "5yr" & place_type %in% "tr "]
+all_tracts <- census_data[place_state %in% "WA" & census_product %in% "5yr" & place_type %in% "tr " & variable_category %in% "COMMUTING TO WORK"]
 
+wa_tracts <- wa_tracts[,..cols_to_keep]
+all_tracts <- all_tracts[,..cols_to_keep]
 ##################################################################################
 ##################################################################################
 ### Travel Time table items

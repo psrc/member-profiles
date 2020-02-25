@@ -68,8 +68,6 @@ shinyServer(function(input, output) {
             ,tooltip = c("text"))
     })
     
-    output$ms_map <- renderLeaflet({create_mode_map(all_tracts, input$Year, "Blues", input$Mode, input$Place, "Mode", "Share")})
-    
     output$ms_heading <- renderText({
         paste("Mode to Work: ",  input$Place, " Residents")
     })
@@ -99,8 +97,6 @@ shinyServer(function(input, output) {
                 scale_x_discrete(labels = function(x) str_wrap(x, width = 5))
             ,tooltip = c("text"))
     })
-    
-    output$tt_map <- renderLeaflet({create_tt_map(all_tracts, input$Year, "Blues", input$Place, "Travel Time", "Minutes")})
     
     output$rtp_map <- renderLeaflet({create_project_map(input$Place)})
     
@@ -415,5 +411,18 @@ shinyServer(function(input, output) {
             ,tooltip = c("text"))
     })
     
-        
+    output$monthlyrent_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, "DP04_0134",input$Year, "Blues", input$Place, "estimate", "variable_name", "Median Rent", "$","")})
+    
+    output$homevalue_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, "DP04_0089",input$Year, "Blues", input$Place, "estimate", "variable_name", "Median Home Value", "$","")})
+    
+    output$zerocar_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, "DP04_0058",input$Year, "Blues", input$Place, "estimate_percent", "variable_name", "% Zero Car HH's", "","%")})
+    
+    output$traveltime_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, "DP03_0025",input$Year, "Blues", input$Place, "estimate", "variable_name", "Time to Work (minutes)", "","")})
+    
+    output$disability_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, input$Disability, input$Year, "Blues", input$Place, "estimate_percent", "variable_description", "Share of People with a Disability", "","%")})
+    
+    output$modeshare_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, input$Mode, input$Year, "Blues", input$Place, "estimate_percent", "variable_description", "Share", "","%")})
+
+    output$race_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, input$Race, input$Year, "Blues", input$Place, "estimate_percent", "variable_description", "Share of Population", "","%")})    
+            
 })

@@ -46,11 +46,19 @@ shinyUI(
                              
                              tabPanel("Race",
                                       fluidRow(
-                                          column(width = 5, plotlyOutput("plot_race")),
-                                          column(width = 5, offset = 1, DT::dataTableOutput("table_race"))
+                                          column(width = 6,
+                                                 verticalLayout(plotlyOutput("plot_race"),
+                                                                DT::dataTableOutput("table_race"))),
+                                          column(width = 5, selectInput("Race","",data_race), leafletOutput("race_map",height="600px"))
+                                      ) # end of Fluid Row
+                             ), # end of Home Value tab panel
+
+                             tabPanel("Disability",
+                                      fluidRow(
+                                          column(width = 5,selectInput("Disability","",data_disability),leafletOutput("disability_map",height="600px"))
                                       )
-                             ), # end of Race Tab Panel
-                             
+                             ), # end of Disability Tab Panel
+                                                                                       
                              tabPanel("About",
                                       fluidRow(
                                           column(width = 12,
@@ -76,26 +84,32 @@ shinyUI(
                                       )
                              ), # end of units tab panel
                              
-                            tabPanel("Home Value",
-                                     fluidRow(
-                                         column(width = 5, plotlyOutput("plot_homevalue")),
-                                         column(width = 5, offset = 1, DT::dataTableOutput("table_homevalue"))
-                                     )
-                            ), # end of Value Tab Panel
+                             tabPanel("Home Value",
+                                      fluidRow(
+                                          column(width = 6,
+                                                 verticalLayout(plotlyOutput("plot_homevalue"),
+                                                                DT::dataTableOutput("table_homevalue"))),
+                                          column(width = 5, br(), leafletOutput("homevalue_map",height="600px"))
+                                      ) # end of Fluid Row
+                             ), # end of Home Value tab panel
 
-                            tabPanel("Monthly Rent",
-                                     fluidRow(
-                                         column(width = 5, plotlyOutput("plot_monthlyrent")),
-                                         column(width = 5, offset = 1, DT::dataTableOutput("table_monthlyrent"))
-                                     )
-                            ), # end of Rent Tab Panel                            
-                            
-                            tabPanel("Vehicles Available",
-                                     fluidRow(
-                                         column(width = 5, plotlyOutput("plot_vehicles")),
-                                         column(width = 5, offset = 1, DT::dataTableOutput("table_vehicles"))
-                                     )
-                            ), # end of Vehicles Tab Panel                            
+                             tabPanel("Monthly Rent",
+                                      fluidRow(
+                                          column(width = 6,
+                                                 verticalLayout(plotlyOutput("plot_monthlyrent"),
+                                                                DT::dataTableOutput("table_monthlyrent"))),
+                                          column(width = 5, br(), leafletOutput("monthlyrent_map",height="600px"))
+                                      ) # end of Fluid Row
+                             ), # end of Monthly Rent tab panel
+                             
+                             tabPanel("Vehicles Available",
+                                      fluidRow(
+                                          column(width = 6,
+                                                 verticalLayout(plotlyOutput("plot_vehicles"),
+                                                                DT::dataTableOutput("table_vehicles"))),
+                                          column(width = 5, br(), leafletOutput("zerocar_map",height="600px"))
+                                      ) # end of Fluid Row
+                             ), # end of Vehicle Availability tab panel                          
                                                          
                              tabPanel("About",
                                       fluidRow(
@@ -219,7 +233,7 @@ shinyUI(
                                           column(width = 5,
                                                  verticalLayout(plotlyOutput("plot_ms"),
                                                                 DT::dataTableOutput("table_ms"))),
-                                          column(width = 6, offset=1, selectInput("Mode","Select mode:",data_modes), leafletOutput("ms_map",height="600px"))
+                                          column(width = 6, offset=1, selectInput("Mode","",data_modes), leafletOutput("modeshare_map",height="600px"))
                                       ) # end of Fluid Row
                              ), # end of mode share tab panel
                              
@@ -228,7 +242,7 @@ shinyUI(
                                           column(width = 6,
                                                  verticalLayout(plotlyOutput("plot_tt"),
                                                                 DT::dataTableOutput("table_tt"))),
-                                          column(width = 5, br(), leafletOutput("tt_map",height="600px"))
+                                          column(width = 5, br(), leafletOutput("traveltime_map",height="600px"))
                                       ) # end of Fluid Row
                              ), # end of travel time tab panel
                              
