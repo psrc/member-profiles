@@ -29,10 +29,17 @@ h3 {
   font-size: 12pt;
 }
 
+#plot_race {
+  padding-top: 5px;
+}
+
+.nav-tabs {
+  padding-top: 20px;
+}
 .navbar {
   font-size: 20pt;
   background-color: white;
-  padding-top: 25px;
-  padding-bottom: 50px;
-  padding-left: 250px;
+  padding-top: 20px;
+  padding-bottom: 20px;
+  padding-left: 0;
 }

@@ -116,19 +116,19 @@ create_project_map <- function(w_place) {
                               "<b> <br>",paste0("Project Title: "), "</b>", approved$Title,
                               "<b> <br>",paste0("Project Cost: $"), "</b>", prettyNum(round(approved$TotalCost, 0), big.mark = ","),
                               "<b> <br>",paste0("Project Status: "), "</b>", approved$MTPStatus,
-                              "<b> <br>",paste0("Project Completion: "), "</b>", approved$Completion) %>% lapply(htmltools::HTML)
+                              "<b> <br>",paste0("Project Completion: "), "</b>", approved$CompletionYear) %>% lapply(htmltools::HTML)
     
     candidate_labels <- paste0("<b>","Project Sponsor: ", "</b>",candidate$Sponsor,
                                "<b> <br>",paste0("Project Title: "), "</b>", candidate$Title,
                                "<b> <br>",paste0("Project Cost: $"), "</b>", prettyNum(round(candidate$TotalCost, 0), big.mark = ","),
                                "<b> <br>",paste0("Project Status: "), "</b>", candidate$MTPStatus,
-                               "<b> <br>",paste0("Project Completion: "), "</b>", candidate$Completion) %>% lapply(htmltools::HTML)    
+                               "<b> <br>",paste0("Project Completion: "), "</b>", candidate$CompletionYear) %>% lapply(htmltools::HTML)    
     
     unprogrammed_labels <- paste0("<b>","Project Sponsor: ", "</b>",unprogrammed$Sponsor,
                                   "<b> <br>",paste0("Project Title: "), "</b>", unprogrammed$Title,
                                   "<b> <br>",paste0("Project Cost: $"), "</b>", prettyNum(round(unprogrammed$TotalCost, 0), big.mark = ","),
                                   "<b> <br>",paste0("Project Status: "), "</b>", unprogrammed$MTPStatus,
-                                  "<b> <br>",paste0("Project Completion: "), "</b>", unprogrammed$Completion) %>% lapply(htmltools::HTML)
+                                  "<b> <br>",paste0("Project Completion: "), "</b>", unprogrammed$CompletionYear) %>% lapply(htmltools::HTML)
     # Create Map
     working_map <- leaflet() %>% 
       addProviderTiles(providers$CartoDB.Positron) %>%
@@ -197,11 +197,11 @@ create_tip_map <- function(w_place) {
     
     tip.trimmed <- tip.shape[which(tip.shape$ProjNo %in% proj_ids),]
     
-    labels <- paste0("<b>","Project Sponsor: ", "</b>",tip.trimmed$PlaceShort,
-                     "<b> <br>",paste0("Project Title: "), "</b>", tip.trimmed$ProjectTit,
+    labels <- paste0("<b>","Project Sponsor: ", "</b>",tip.trimmed$PlaceShortName,
+                     "<b> <br>",paste0("Project Title: "), "</b>", tip.trimmed$ProjectTitle,
                      "<b> <br>",paste0("Project Cost: $"), "</b>", prettyNum(round(tip.trimmed$TotCost, 0), big.mark = ","),
-                     "<b> <br>",paste0("Type of Improvement: "), "</b>", tip.trimmed$ImproveTyp,
-                     "<b> <br>",paste0("Project Completion: "), "</b>", tip.trimmed$EstComplet) %>% lapply(htmltools::HTML)
+                     "<b> <br>",paste0("Type of Improvement: "), "</b>", tip.trimmed$ImproveType,
+                     "<b> <br>",paste0("Project Completion: "), "</b>", tip.trimmed$EstCompletionYear) %>% lapply(htmltools::HTML)
     
     # Create Map
     working_map <- leaflet() %>% 

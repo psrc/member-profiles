@@ -107,7 +107,19 @@ shinyServer(function(input, output) {
     output$CensusBackground <- renderText({
         paste("As a State Data Center for the central Puget Sound region, PSRC keeps a complete inventory of data released from the 1990, 2000, and 2010 censuses, as well as the American Community Survey (ACS).  The American Community Survey (ACS) is a product of the U.S. Census Bureau. Cities and counties use the ACS to track the well-being of children, families, and the elderly. They use it to determine where to locate new roads and transit routes, schools, and hospitals. This portal includes demographic profiles which include age, sex, income, household size, education, and other topics for all cities and towns in the PSRC region.")
     })
-    
+
+    output$DemographicBackground <- renderText({
+        paste("Most of the information on demographic characteristics is summarized in Data Profile 5 (DP05) with household, disability and ancestry data in Data Profile 2 (DP02). DP05 includes data on age and race and is a summarization of a variety of detailed tables related to age and race contained within the American Community Survey datasets.")
+    }) 
+
+    output$HousingBackground <- renderText({
+        paste("Housing characteristics are summarized in Data Profile 4 (DP04) and includes data on occupancy, units, bedrooms, costs, tenure, value and vehicle availability.")
+    }) 
+
+    output$JobsBackground <- renderText({
+        paste("Job and income characteristics are summarized in Data Profile 3 (DP03) and includes data on occupations, household income, health insurance and mode to work.")
+    })     
+        
     output$table_rtp <- DT::renderDataTable({
         datatable(create_project_table(input$Place,rtp.shape,rtp_cols,final_nms), rownames = FALSE, options = list(pageLength = proj_length, columnDefs = list(list(className = 'dt-center', targets = 4:6)))) %>% formatCurrency(currency_rtp , "$", digits = 0)
     })
@@ -424,5 +436,21 @@ shinyServer(function(input, output) {
     output$modeshare_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, input$Mode, input$Year, "Blues", input$Place, "estimate_percent", "variable_description", "Share", "","%")})
 
     output$race_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, input$Race, input$Year, "Blues", input$Place, "estimate_percent", "variable_description", "Share of Population", "","%")})    
-            
+
+    observeEvent(input$showpanel, {
+        
+        if(input$showpanel == TRUE) {
+            removeCssClass("Main", "col-sm-12")
+            addCssClass("Main", "col-sm-9")
+            shinyjs::show(id = "sidebar")
+            shinyjs::enable(id = "sidebar")
+        }
+        else {
+            removeCssClass("Main", "col-sm-9")
+            addCssClass("Main", "col-sm-12")
+            shinyjs::hide(id = "sidebar")
+        }
+    })
+    
+    
 })

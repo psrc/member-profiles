@@ -4,6 +4,8 @@ library(data.table)
 library(stringr)
 library(DT)
 library(shiny)
+library(shinyjs)
+library(shinyBS)
 library(ggplot2)
 library(scales)
 library(plotly)
@@ -16,6 +18,7 @@ library(dplyr)
 library(rgeos)
 
 wrkdir <- "C:/coding/member-profiles/psrc-member-profiles"
+inpdir <- "C:/coding/member-profiles/inputs"
 tmcdir <- "C:/coding/member-profiles/npmrds"
 
 source(file.path(wrkdir, 'functions.R'))
@@ -35,12 +38,14 @@ community.point <- setDT(community.shape@data)
 
 tract.shape <- readOGR(dsn='c:/coding/member-profiles/shapefiles',layer='tract_2010_no_water_wgs1984',stringsAsFactors = FALSE)
 
-rtp.shape <- readOGR(dsn='c:/coding/member-profiles/shapefiles',layer='rtp_2040_wgs1984',stringsAsFactors = FALSE)
-rtp.shape$ImproveTyp <- " "
+rtp.url <- "https://services6.arcgis.com/GWxg6t7KXELn1thE/arcgis/rest/services/RTP/FeatureServer/0/query?where=0=0&outFields=*&f=pgeojson"
+rtp.shape <- readOGR(dsn=rtp.url,stringsAsFactors = FALSE)
+rtp.shape$ImprovementType <- " "
 
-tip.shape <- readOGR(dsn='c:/coding/member-profiles/shapefiles',layer='tip_19_22_wgs1984',stringsAsFactors = FALSE)
+tip.url <- "https://services6.arcgis.com/GWxg6t7KXELn1thE/arcgis/rest/services/TIP_19_22/FeatureServer/0/query?where=0=0&outFields=*&f=pgeojson"
+tip.shape <- readOGR(dsn=tip.url,stringsAsFactors = FALSE)
 tip.shape$TotCost <- as.numeric(tip.shape$TotCost)
-tip.shape$EstComplet <- as.numeric(tip.shape$EstComplet)
+tip.shape$EstCompletionYear <- as.numeric(tip.shape$EstCompletionYear)
 tip.shape$Status <- "2019-2022 TIP"
 
 tmc.shape <- readOGR(dsn='c:/coding/member-profiles/shapefiles',layer='washington_wgs1984',stringsAsFactors = FALSE)
@@ -83,8 +88,8 @@ tt_length <- 6
 ##################################################################################
 ##################################################################################
 
-rtp_cols <- c("mtpid","Sponsor","Title","ImproveTyp","Completion","MTPStatus","TotalCost")
-tip_cols <- c("ProjNo","PlaceShort","ProjectTit","ImproveTyp","EstComplet","Status","TotCost")
+rtp_cols <- c("mtpid","Sponsor","Title","ImprovementType","CompletionYear","MTPStatus","TotalCost")
+tip_cols <- c("ProjNo","PlaceShortName","ProjectTitle","ImproveType","EstCompletionYear","Status","TotCost")
 final_nms <- c("ID","Sponsor","Title","Improvement Type","Project Completion","Project Status","Cost")
 
 currency_rtp <- c("Cost")
@@ -150,7 +155,7 @@ hs_order <- c("1-unit detached", "1-unit attached", "2 units", "3-4 units", "5-9
 
 numeric_hs <- c("estimate","margin_of_error")
 percent_hs <- c("Share","Region")
-house_length <- 10
+house_length <- 5
 
 ##################################################################################
 ##################################################################################
@@ -182,7 +187,7 @@ hv_order <- c("< $50k", "$50k to $100k", "$100k to $150k", "$150k to $200k", "$2
 
 numeric_hv <- c("estimate","margin_of_error")
 percent_hv <- c("Share","Region")
-hv_length <- 10
+hv_length <- 5
 
 ##################################################################################
 ##################################################################################
@@ -198,7 +203,7 @@ rent_order <- c("< $500", "$500 to $1000", "$1000 to $1500", "$1500 to $2000", "
 
 numeric_rent <- c("estimate","margin_of_error")
 percent_rent <- c("Share","Region")
-rent_length <- 10
+rent_length <- 5
 
 ##################################################################################
 ##################################################################################
@@ -214,7 +219,7 @@ age_order <- c("< 5yrs","5 to 10yrs","10 to 15yrs","15 to 20yrs","20 to 25yrs","
 
 numeric_age <- c("estimate","margin_of_error")
 percent_age <- c("Share","Region")
-age_length <- 15
+age_length <- 5
 
 ##################################################################################
 ##################################################################################
@@ -230,7 +235,7 @@ race_order <- c("White ","Black or African American ","American Indian and Alask
 
 numeric_race <- c("estimate","margin_of_error")
 percent_race <- c("Share","Region")
-race_length <- 10
+race_length <- 5
 
 ##################################################################################
 ##################################################################################
@@ -242,139 +247,154 @@ geography_dim <- table_from_db(server_name,database_name,"census.geography_dim")
 variable_dim <- table_from_db(server_name,database_name,"census.variable_dim")
 variable_facts <- table_from_db(server_name,database_name,"census.variable_facts")
 
-# Minor table cleanup and merging of tables
-geography <- table_cleanup(geography_dim,c("geography_dim_id","geoid","summary_level","name","place_type","state"),c("geography_dim_id","geoid","summary_level","place_name","place_type","place_state"))
+##################################################################################
+##################################################################################
+### Variable DIM cleanup until it is cleaned in the database
+##################################################################################
+##################################################################################
 variables <- table_cleanup(variable_dim,c("variable_dim_id","census_year","census_table_code","census_product","name","category","variable_description"),c("variable_dim_id","year","census_table","census_product","variable_name","variable_category","variable_description"))
 
-census_data <- merge(variable_facts,variables, by="variable_dim_id")
-census_data <- merge(census_data,geography, by="geography_dim_id")
-
-# Add County to the name for the coutnies to avoid overlap with place names 
-census_data$place_name[census_data$place_name == "King" & census_data$place_type == "co "] <- "King County"
-census_data$place_name[census_data$place_name == "Kitsap" & census_data$place_type == "co "] <- "Kitsap County"
-census_data$place_name[census_data$place_name == "Pierce" & census_data$place_type == "co "] <- "Pierce County"
-census_data$place_name[census_data$place_name == "Snohomish" & census_data$place_type == "co "] <- "Snohomish County"
-
 # Clean up Mode Names
-census_data$variable_description[census_data$variable_name == "DP03_0018"] <- "Workers 16+"
-census_data$variable_description[census_data$variable_name == "DP03_0019"] <- "Drove Alone"
-census_data$variable_description[census_data$variable_name == "DP03_0020"] <- "Carpooled"
-census_data$variable_description[census_data$variable_name == "DP03_0021"] <- "Transit"
-census_data$variable_description[census_data$variable_name == "DP03_0022"] <- "Walked"
-census_data$variable_description[census_data$variable_name == "DP03_0023"] <- "Other"
-census_data$variable_description[census_data$variable_name == "DP03_0024"] <- "Telework"
-census_data$variable_description[census_data$variable_name == "DP03_0025"] <- "Mean Travel Time to Work"
+variables$variable_description[variables$variable_name == "DP03_0018"] <- "Workers 16+"
+variables$variable_description[variables$variable_name == "DP03_0019"] <- "Drove Alone"
+variables$variable_description[variables$variable_name == "DP03_0020"] <- "Carpooled"
+variables$variable_description[variables$variable_name == "DP03_0021"] <- "Transit"
+variables$variable_description[variables$variable_name == "DP03_0022"] <- "Walked"
+variables$variable_description[variables$variable_name == "DP03_0023"] <- "Other"
+variables$variable_description[variables$variable_name == "DP03_0024"] <- "Telework"
+variables$variable_description[variables$variable_name == "DP03_0025"] <- "Mean Travel Time to Work"
 
 # Clean up Occupation Names
-census_data$variable_description[census_data$variable_name == "DP03_0026"] <- "Civilian employed population 16+"
-census_data$variable_description[census_data$variable_name == "DP03_0027"] <- "Management, Business, Science & Arts"
-census_data$variable_description[census_data$variable_name == "DP03_0028"] <- "Service"
-census_data$variable_description[census_data$variable_name == "DP03_0029"] <- "Sales & Office"
-census_data$variable_description[census_data$variable_name == "DP03_0030"] <- "Construction, Natural Resources & Maintenance"
-census_data$variable_description[census_data$variable_name == "DP03_0031"] <- "Production, Transportation & Material Moving"
+variables$variable_description[variables$variable_name == "DP03_0026"] <- "Civilian employed population 16+"
+variables$variable_description[variables$variable_name == "DP03_0027"] <- "Management, Business, Science & Arts"
+variables$variable_description[variables$variable_name == "DP03_0028"] <- "Service"
+variables$variable_description[variables$variable_name == "DP03_0029"] <- "Sales & Office"
+variables$variable_description[variables$variable_name == "DP03_0030"] <- "Construction, Natural Resources & Maintenance"
+variables$variable_description[variables$variable_name == "DP03_0031"] <- "Production, Transportation & Material Moving"
 
 # Clean up Industry Names
-census_data$variable_description[census_data$variable_name == "DP03_0032"] <- "Civilian employed population 16+"
-census_data$variable_description[census_data$variable_name == "DP03_0033"] <- "Agriculture, forestry & mining"
-census_data$variable_description[census_data$variable_name == "DP03_0034"] <- "Construction"
-census_data$variable_description[census_data$variable_name == "DP03_0035"] <- "Manufacturing"
-census_data$variable_description[census_data$variable_name == "DP03_0036"] <- "Wholesale"
-census_data$variable_description[census_data$variable_name == "DP03_0037"] <- "Retail"
-census_data$variable_description[census_data$variable_name == "DP03_0038"] <- "Transportation, Warehousing & Utilities"
-census_data$variable_description[census_data$variable_name == "DP03_0039"] <- "Information"
-census_data$variable_description[census_data$variable_name == "DP03_0040"] <- "FIRES"
-census_data$variable_description[census_data$variable_name == "DP03_0041"] <- "Professional, Management & Administrative"
-census_data$variable_description[census_data$variable_name == "DP03_0042"] <- "Education, Health Care & Social services"
-census_data$variable_description[census_data$variable_name == "DP03_0043"] <- "Entertainment, Accommodations & Food services"
-census_data$variable_description[census_data$variable_name == "DP03_0044"] <- "Other services"
-census_data$variable_description[census_data$variable_name == "DP03_0045"] <- "Public Administration"
+variables$variable_description[variables$variable_name == "DP03_0032"] <- "Civilian employed population 16+"
+variables$variable_description[variables$variable_name == "DP03_0033"] <- "Agriculture, forestry & mining"
+variables$variable_description[variables$variable_name == "DP03_0034"] <- "Construction"
+variables$variable_description[variables$variable_name == "DP03_0035"] <- "Manufacturing"
+variables$variable_description[variables$variable_name == "DP03_0036"] <- "Wholesale"
+variables$variable_description[variables$variable_name == "DP03_0037"] <- "Retail"
+variables$variable_description[variables$variable_name == "DP03_0038"] <- "Transportation, Warehousing & Utilities"
+variables$variable_description[variables$variable_name == "DP03_0039"] <- "Information"
+variables$variable_description[variables$variable_name == "DP03_0040"] <- "FIRES"
+variables$variable_description[variables$variable_name == "DP03_0041"] <- "Professional, Management & Administrative"
+variables$variable_description[variables$variable_name == "DP03_0042"] <- "Education, Health Care & Social services"
+variables$variable_description[variables$variable_name == "DP03_0043"] <- "Entertainment, Accommodations & Food services"
+variables$variable_description[variables$variable_name == "DP03_0044"] <- "Other services"
+variables$variable_description[variables$variable_name == "DP03_0045"] <- "Public Administration"
 
 # Clean up Income Levels
-census_data$variable_description[census_data$variable_name == "DP03_0051"] <- "Total households"
-census_data$variable_description[census_data$variable_name == "DP03_0052"] <- "< $10k"
-census_data$variable_description[census_data$variable_name == "DP03_0053"] <- "$10k to $15k"
-census_data$variable_description[census_data$variable_name == "DP03_0054"] <- "$15k to $25k"
-census_data$variable_description[census_data$variable_name == "DP03_0055"] <- "$25k to $35k"
-census_data$variable_description[census_data$variable_name == "DP03_0056"] <- "$35k to $50k"
-census_data$variable_description[census_data$variable_name == "DP03_0057"] <- "$50k to $75k"
-census_data$variable_description[census_data$variable_name == "DP03_0058"] <- "$75k to $100k"
-census_data$variable_description[census_data$variable_name == "DP03_0059"] <- "$100k to $150k"
-census_data$variable_description[census_data$variable_name == "DP03_0060"] <- "$150k to $200k"
-census_data$variable_description[census_data$variable_name == "DP03_0061"] <- "more than $200k"
+variables$variable_description[variables$variable_name == "DP03_0051"] <- "Total households"
+variables$variable_description[variables$variable_name == "DP03_0052"] <- "< $10k"
+variables$variable_description[variables$variable_name == "DP03_0053"] <- "$10k to $15k"
+variables$variable_description[variables$variable_name == "DP03_0054"] <- "$15k to $25k"
+variables$variable_description[variables$variable_name == "DP03_0055"] <- "$25k to $35k"
+variables$variable_description[variables$variable_name == "DP03_0056"] <- "$35k to $50k"
+variables$variable_description[variables$variable_name == "DP03_0057"] <- "$50k to $75k"
+variables$variable_description[variables$variable_name == "DP03_0058"] <- "$75k to $100k"
+variables$variable_description[variables$variable_name == "DP03_0059"] <- "$100k to $150k"
+variables$variable_description[variables$variable_name == "DP03_0060"] <- "$150k to $200k"
+variables$variable_description[variables$variable_name == "DP03_0061"] <- "more than $200k"
 
 # Clean up Housing Units
-census_data$variable_description[census_data$variable_name == "DP04_0006"] <- "Total units"
-census_data$variable_description[census_data$variable_name == "DP04_0007"] <- "1-unit detached"
-census_data$variable_description[census_data$variable_name == "DP04_0008"] <- "1-unit attached"
-census_data$variable_description[census_data$variable_name == "DP04_0009"] <- "2 units"
-census_data$variable_description[census_data$variable_name == "DP04_0010"] <- "3-4 units"
-census_data$variable_description[census_data$variable_name == "DP04_0011"] <- "5-9 units"
-census_data$variable_description[census_data$variable_name == "DP04_0012"] <- "10-19 units"
-census_data$variable_description[census_data$variable_name == "DP04_0013"] <- "20+ units"
-census_data$variable_description[census_data$variable_name == "DP04_0014"] <- "Mobile Home"
-census_data$variable_description[census_data$variable_name == "DP04_0015"] <- "Boat, RV, Van etc."
+variables$variable_description[variables$variable_name == "DP04_0006"] <- "Total units"
+variables$variable_description[variables$variable_name == "DP04_0007"] <- "1-unit detached"
+variables$variable_description[variables$variable_name == "DP04_0008"] <- "1-unit attached"
+variables$variable_description[variables$variable_name == "DP04_0009"] <- "2 units"
+variables$variable_description[variables$variable_name == "DP04_0010"] <- "3-4 units"
+variables$variable_description[variables$variable_name == "DP04_0011"] <- "5-9 units"
+variables$variable_description[variables$variable_name == "DP04_0012"] <- "10-19 units"
+variables$variable_description[variables$variable_name == "DP04_0013"] <- "20+ units"
+variables$variable_description[variables$variable_name == "DP04_0014"] <- "Mobile Home"
+variables$variable_description[variables$variable_name == "DP04_0015"] <- "Boat, RV, Van etc."
 
 # Clean up Vehicle Availability
-census_data$variable_description[census_data$variable_name == "DP04_0057"] <- "Total units"
-census_data$variable_description[census_data$variable_name == "DP04_0058"] <- "0 Vehicles"
-census_data$variable_description[census_data$variable_name == "DP04_0059"] <- "1 Vehicle"
-census_data$variable_description[census_data$variable_name == "DP04_0060"] <- "2 Vehicles"
-census_data$variable_description[census_data$variable_name == "DP04_0061"] <- "3+ Vehicles"
+variables$variable_description[variables$variable_name == "DP04_0057"] <- "Total units"
+variables$variable_description[variables$variable_name == "DP04_0058"] <- "0 Vehicles"
+variables$variable_description[variables$variable_name == "DP04_0059"] <- "1 Vehicle"
+variables$variable_description[variables$variable_name == "DP04_0060"] <- "2 Vehicles"
+variables$variable_description[variables$variable_name == "DP04_0061"] <- "3+ Vehicles"
 
 # Clean up Home Value
-census_data$variable_description[census_data$variable_name == "DP04_0080"] <- "Owner Occupied Units"
-census_data$variable_description[census_data$variable_name == "DP04_0081"] <- "< $50k"
-census_data$variable_description[census_data$variable_name == "DP04_0082"] <- "$50k to $100k"
-census_data$variable_description[census_data$variable_name == "DP04_0083"] <- "$100k to $150k"
-census_data$variable_description[census_data$variable_name == "DP04_0084"] <- "$150k to $200k"
-census_data$variable_description[census_data$variable_name == "DP04_0085"] <- "$200k to $300k"
-census_data$variable_description[census_data$variable_name == "DP04_0086"] <- "$300k to $500k"
-census_data$variable_description[census_data$variable_name == "DP04_0087"] <- "$500k to $1m"
-census_data$variable_description[census_data$variable_name == "DP04_0088"] <- "more than $1m"
-census_data$variable_description[census_data$variable_name == "DP04_0089"] <- "Median Value"
+variables$variable_description[variables$variable_name == "DP04_0080"] <- "Owner Occupied Units"
+variables$variable_description[variables$variable_name == "DP04_0081"] <- "< $50k"
+variables$variable_description[variables$variable_name == "DP04_0082"] <- "$50k to $100k"
+variables$variable_description[variables$variable_name == "DP04_0083"] <- "$100k to $150k"
+variables$variable_description[variables$variable_name == "DP04_0084"] <- "$150k to $200k"
+variables$variable_description[variables$variable_name == "DP04_0085"] <- "$200k to $300k"
+variables$variable_description[variables$variable_name == "DP04_0086"] <- "$300k to $500k"
+variables$variable_description[variables$variable_name == "DP04_0087"] <- "$500k to $1m"
+variables$variable_description[variables$variable_name == "DP04_0088"] <- "more than $1m"
+variables$variable_description[variables$variable_name == "DP04_0089"] <- "Median Value"
 
 # Clean up Retn Cost
-census_data$variable_description[census_data$variable_name == "DP04_0126"] <- "Occupied Rental Units"
-census_data$variable_description[census_data$variable_name == "DP04_0127"] <- "< $500"
-census_data$variable_description[census_data$variable_name == "DP04_0128"] <- "$500 to $1000"
-census_data$variable_description[census_data$variable_name == "DP04_0129"] <- "$1000 to $1500"
-census_data$variable_description[census_data$variable_name == "DP04_0130"] <- "$1500 to $2000"
-census_data$variable_description[census_data$variable_name == "DP04_0131"] <- "$2000 to $2500"
-census_data$variable_description[census_data$variable_name == "DP04_0132"] <- "$2500 to $3000"
-census_data$variable_description[census_data$variable_name == "DP04_0133"] <- "more than $3000"
-census_data$variable_description[census_data$variable_name == "DP04_0134"] <- "Median Rent"
-census_data$variable_description[census_data$variable_name == "DP04_0135"] <- "No Rent Paid"
+variables$variable_description[variables$variable_name == "DP04_0126"] <- "Occupied Rental Units"
+variables$variable_description[variables$variable_name == "DP04_0127"] <- "< $500"
+variables$variable_description[variables$variable_name == "DP04_0128"] <- "$500 to $1000"
+variables$variable_description[variables$variable_name == "DP04_0129"] <- "$1000 to $1500"
+variables$variable_description[variables$variable_name == "DP04_0130"] <- "$1500 to $2000"
+variables$variable_description[variables$variable_name == "DP04_0131"] <- "$2000 to $2500"
+variables$variable_description[variables$variable_name == "DP04_0132"] <- "$2500 to $3000"
+variables$variable_description[variables$variable_name == "DP04_0133"] <- "more than $3000"
+variables$variable_description[variables$variable_name == "DP04_0134"] <- "Median Rent"
+variables$variable_description[variables$variable_name == "DP04_0135"] <- "No Rent Paid"
 
 # Clean up Age Groups
-census_data$variable_description[census_data$variable_name == "DP05_0001"] <- "Total population"
-census_data$variable_description[census_data$variable_name == "DP05_0005"] <- "< 5yrs"
-census_data$variable_description[census_data$variable_name == "DP05_0006"] <- "5 to 10yrs"
-census_data$variable_description[census_data$variable_name == "DP05_0007"] <- "10 to 15yrs"
-census_data$variable_description[census_data$variable_name == "DP05_0008"] <- "15 to 20yrs"
-census_data$variable_description[census_data$variable_name == "DP05_0009"] <- "20 to 25yrs"
-census_data$variable_description[census_data$variable_name == "DP05_0010"] <- "25 to 35ys"
-census_data$variable_description[census_data$variable_name == "DP05_0011"] <- "35 to 45yrs"
-census_data$variable_description[census_data$variable_name == "DP05_0012"] <- "45 to 55yrs"
-census_data$variable_description[census_data$variable_name == "DP05_0013"] <- "55 to 60yrs"
-census_data$variable_description[census_data$variable_name == "DP05_0014"] <- "60 to 65yrs"
-census_data$variable_description[census_data$variable_name == "DP05_0015"] <- "65 to 75yrs"
-census_data$variable_description[census_data$variable_name == "DP05_0016"] <- "75 to 85yrs"
-census_data$variable_description[census_data$variable_name == "DP05_0017"] <- "more than 85yrs"
+variables$variable_description[variables$variable_name == "DP05_0001"] <- "Total population"
+variables$variable_description[variables$variable_name == "DP05_0005"] <- "< 5yrs"
+variables$variable_description[variables$variable_name == "DP05_0006"] <- "5 to 10yrs"
+variables$variable_description[variables$variable_name == "DP05_0007"] <- "10 to 15yrs"
+variables$variable_description[variables$variable_name == "DP05_0008"] <- "15 to 20yrs"
+variables$variable_description[variables$variable_name == "DP05_0009"] <- "20 to 25yrs"
+variables$variable_description[variables$variable_name == "DP05_0010"] <- "25 to 35ys"
+variables$variable_description[variables$variable_name == "DP05_0011"] <- "35 to 45yrs"
+variables$variable_description[variables$variable_name == "DP05_0012"] <- "45 to 55yrs"
+variables$variable_description[variables$variable_name == "DP05_0013"] <- "55 to 60yrs"
+variables$variable_description[variables$variable_name == "DP05_0014"] <- "60 to 65yrs"
+variables$variable_description[variables$variable_name == "DP05_0015"] <- "65 to 75yrs"
+variables$variable_description[variables$variable_name == "DP05_0016"] <- "75 to 85yrs"
+variables$variable_description[variables$variable_name == "DP05_0017"] <- "more than 85yrs"
 
 # Clean up Race Descriptions
-census_data$variable_description[census_data$variable_name == "DP05_0063"] <- "Total population"
-census_data$variable_description[census_data$variable_name == "DP05_0064"] <- "White "
-census_data$variable_description[census_data$variable_name == "DP05_0065"] <- "Black or African American "
-census_data$variable_description[census_data$variable_name == "DP05_0066"] <- "American Indian and Alaska Native "
-census_data$variable_description[census_data$variable_name == "DP05_0067"] <- "Asian "
-census_data$variable_description[census_data$variable_name == "DP05_0068"] <- "Native Hawaiian and Other Pacific Islander "
-census_data$variable_description[census_data$variable_name == "DP05_0069"] <- "Some other race "
+variables$variable_description[variables$variable_name == "DP05_0063"] <- "Total population"
+variables$variable_description[variables$variable_name == "DP05_0064"] <- "White "
+variables$variable_description[variables$variable_name == "DP05_0065"] <- "Black or African American "
+variables$variable_description[variables$variable_name == "DP05_0066"] <- "American Indian and Alaska Native "
+variables$variable_description[variables$variable_name == "DP05_0067"] <- "Asian "
+variables$variable_description[variables$variable_name == "DP05_0068"] <- "Native Hawaiian and Other Pacific Islander "
+variables$variable_description[variables$variable_name == "DP05_0069"] <- "Some other race "
 
 # Clean up Disability Descriptions
-census_data$variable_description[census_data$variable_name == "DP02_0073"] <- "< 18 with a disability"
-census_data$variable_description[census_data$variable_name == "DP02_0075"] <- "18 to 65 with a disability"
-census_data$variable_description[census_data$variable_name == "DP02_0077"] <- "over 65 with a disability"
-census_data$variable_description[census_data$variable_name == "DP02_0071"] <- "All Ages with a disability"
+variables$variable_description[variables$variable_name == "DP02_0073"] <- "< 18 with a disability"
+variables$variable_description[variables$variable_name == "DP02_0075"] <- "18 to 65 with a disability"
+variables$variable_description[variables$variable_name == "DP02_0077"] <- "over 65 with a disability"
+variables$variable_description[variables$variable_name == "DP02_0071"] <- "All Ages with a disability"
+
+##################################################################################
+##################################################################################
+### Geography DIM cleanup
+##################################################################################
+##################################################################################
+geography <- table_cleanup(geography_dim,c("geography_dim_id","geoid","summary_level","name","place_type","state"),c("geography_dim_id","geoid","summary_level","place_name","place_type","place_state"))
+
+# Add County to the name for the counties to avoid overlap with place names 
+geography$place_name[geography$place_name == "King" & geography$place_type == "co "] <- "King County"
+geography$place_name[geography$place_name == "Kitsap" & geography$place_type == "co "] <- "Kitsap County"
+geography$place_name[geography$place_name == "Pierce" & geography$place_type == "co "] <- "Pierce County"
+geography$place_name[geography$place_name == "Snohomish" & geography$place_type == "co "] <- "Snohomish County"
+
+##################################################################################
+##################################################################################
+### Fully joined and cleaned census data table for analysis
+##################################################################################
+##################################################################################
+census_data <- merge(variable_facts,variables, by="variable_dim_id")
+census_data <- merge(census_data,geography, by="geography_dim_id")
 
 # Clean up workspace
 rm("geography_dim","variable_dim","variable_facts","geography","variables") 
@@ -400,8 +420,8 @@ modes <- modes[variable_description != "Mean Travel Time to Work"]
 disabled <- wa_places[variable_name %in% c("DP02_0073","DP02_0075","DP02_0077","DP02_0071")]
 race <- wa_places[variable_name %in% c("DP05_0064","DP05_0065","DP05_0066","DP05_0067","DP05_0068","DP05_0069")]
 
-data_years <- unique(only_places$year)
-data_places <- unique(only_places$place_name)
+data_years <- unique(wa_places$year)
+data_places <- sort(unique(wa_places$place_name))
 data_modes <- unique(modes$variable_description)
 data_disability <- unique(disabled$variable_description)
 data_race <- unique(race$variable_description)
