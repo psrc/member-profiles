@@ -16,9 +16,11 @@ library(rgdal)
 library(raster)
 library(dplyr)
 library(rgeos)
+library(lubridate)
+library(RODBC)
 
 wrkdir <- "C:/coding/member-profiles/psrc-member-profiles"
-inpdir <- "C:/coding/member-profiles/inputs"
+inpdir <- "C:/coding/member-profiles/worker-flow"
 tmcdir <- "C:/coding/member-profiles/npmrds"
 
 source(file.path(wrkdir, 'functions.R'))
@@ -26,17 +28,19 @@ source(file.path(wrkdir, 'functions.R'))
 server_name <- "AWS-PROD-SQL\\COHO"
 database_name <- "Elmer"
 
+census_data <- stored_procedure_from_db(server_name,database_name,"exec census.census_data_for_mamber_profiles")
+
 ##################################################################################
 ##################################################################################
 ### Shapefiles
 ##################################################################################
 ##################################################################################
 
-community.shape <- readOGR(dsn='c:/coding/member-profiles/shapefiles',layer='communities_wgs_1984',stringsAsFactors = FALSE)
+community.shape <- readOGR(dsn='c:/coding/member-profiles/shapefiles',layer='places_wgs_1984',stringsAsFactors = FALSE)
 community.shape$ZOOM <- as.integer(community.shape$ZOOM)
 community.point <- setDT(community.shape@data)
 
-tract.shape <- readOGR(dsn='c:/coding/member-profiles/shapefiles',layer='tract_2010_no_water_wgs1984',stringsAsFactors = FALSE)
+tract.shape <- readOGR(dsn='c:/coding/member-profiles/shapefiles',layer='extended_tract_2010_no_water_wgs1984',stringsAsFactors = FALSE)
 
 rtp.url <- "https://services6.arcgis.com/GWxg6t7KXELn1thE/arcgis/rest/services/RTP/FeatureServer/0/query?where=0=0&outFields=*&f=pgeojson"
 rtp.shape <- readOGR(dsn=rtp.url,stringsAsFactors = FALSE)
@@ -52,19 +56,31 @@ tmc.shape <- readOGR(dsn='c:/coding/member-profiles/shapefiles',layer='washingto
 
 ##################################################################################
 ##################################################################################
+### Work Flows
+##################################################################################
+##################################################################################
+
+#work.flow <- setDT(read.csv(file.path(inpdir, 'wa_od_main_JT00_2017.csv')))
+#f_cols <- c("w_geocode","h_geocode","S000")
+#work.flow <- work.flow[,..f_cols]
+#work.flow$date <- "3/31/2017"
+#work.flow$date <- mdy(work.flow$date)
+
+##################################################################################
+##################################################################################
 ### Mode Share Information
 ##################################################################################
 ##################################################################################
 
-ms_var <- "COMMUTING TO WORK"
+ms_var <- c("DP03_0018","DP03_0019","DP03_0020","DP03_0021","DP03_0022","DP03_0023","DP03_0024")
 ms_cols <- c("variable_description","estimate","margin_of_error")
 ms_total <- c("Workers 16+")
-ms_remove <- c("Mean Travel Time to Work")
+ms_remove <- NULL
 ms_order <- c("Drove Alone", "Carpooled", "Transit", "Walked", "Other", "Telework")
 
 numeric_ms <- c("estimate","margin_of_error")
 percent_ms <- c("Share","Region")
-mode_length <- 6
+mode_length <- 10
 
 ##################################################################################
 ##################################################################################
@@ -72,7 +88,7 @@ mode_length <- 6
 ##################################################################################
 ##################################################################################
 
-tt_var <- "B08303"
+tt_var <- c("B08303_001","B08303_002","B08303_003","B08303_004","B08303_005","B08303_006","B08303_007","B08303_008","B08303_009","B08303_010","B08303_011","B08303_012","B08303_013")
 tt_cols <- c("variable_description","estimate","margin_of_error")
 tt_total <- c("Total")
 tt_remove <- NULL
@@ -119,13 +135,13 @@ congestion_colors <- c(
 ### Occupation, Industry and Income Information
 ##################################################################################
 ##################################################################################
-occ_var <- "OCCUPATION"
+occ_var <- c("DP03_0026","DP03_0027","DP03_0028","DP03_0029","DP03_0030","DP03_0031")
 occ_cols <- c("variable_description","estimate","margin_of_error")
 occ_total <- c("Civilian employed population 16+")
 occ_remove <- NULL
 occ_order <- c("Construction, Natural Resources & Maintenance","Management, Business, Science & Arts", "Production, Transportation & Material Moving", "Sales & Office", "Service")
 
-ind_var <- "INDUSTRY"
+ind_var <- c("DP03_0032","DP03_0033","DP03_0034","DP03_0035","DP03_0036","DP03_0037","DP03_0038","DP03_0039","DP03_0040","DP03_0041","DP03_0042","DP03_0043","DP03_0044","DP03_0045")
 ind_cols <- c("variable_description","estimate","margin_of_error")
 ind_total <- c("Civilian employed population 16+")
 ind_remove <- NULL
@@ -147,10 +163,10 @@ job_length <- 10
 ##################################################################################
 ##################################################################################
 
-hs_var <- "UNITS IN STRUCTURE"
+hs_var <- c("DP04_0006","DP04_0007","DP04_0008","DP04_0009","DP04_0010","DP04_0011","DP04_0012","DP04_0013","DP04_0014")
 hs_cols <- c("variable_description","estimate","margin_of_error")
 hs_total <- c("Total units")
-hs_remove <- c("Boat, RV, Van etc.")
+hs_remove <- NULL
 hs_order <- c("1-unit detached", "1-unit attached", "2 units", "3-4 units", "5-9 units", "10-19 units", "20+ units", "Mobile Home")
 
 numeric_hs <- c("estimate","margin_of_error")
@@ -163,7 +179,7 @@ house_length <- 5
 ##################################################################################
 ##################################################################################
 
-va_var <- "VEHICLES AVAILABLE"
+va_var <- c("DP04_0057","DP04_0058","DP04_0059","DP04_0060","DP04_0061")
 va_cols <- c("variable_description","estimate","margin_of_error")
 va_total <- c("Total units")
 va_remove <- NULL
@@ -179,10 +195,10 @@ va_length <- 5
 ##################################################################################
 ##################################################################################
 
-hv_var <- "VALUE"
+hv_var <- c("DP04_0080","DP04_0081","DP04_0082","DP04_0083","DP04_0084","DP04_0085","DP04_0086","DP04_0087","DP04_0088")
 hv_cols <- c("variable_description","estimate","margin_of_error")
 hv_total <- c("Owner Occupied Units")
-hv_remove <- c("Median Value")
+hv_remove <- NULL
 hv_order <- c("< $50k", "$50k to $100k", "$100k to $150k", "$150k to $200k", "$200k to $300k", "$300k to $500k", "$500k to $1m", "more than $1m")
 
 numeric_hv <- c("estimate","margin_of_error")
@@ -195,10 +211,10 @@ hv_length <- 5
 ##################################################################################
 ##################################################################################
 
-rent_var <- "GROSS RENT"
+rent_var <- c("DP04_0126","DP04_0127","DP04_0128","DP04_0129","DP04_0130","DP04_0131","DP04_0132","DP04_0133")
 rent_cols <- c("variable_description","estimate","margin_of_error")
 rent_total <- c("Occupied Rental Units")
-rent_remove <- c("Median Rent", "No Rent Paid")
+rent_remove <- NULL
 rent_order <- c("< $500", "$500 to $1000", "$1000 to $1500", "$1500 to $2000", "$2000 to $2500", "$2500 to $3000", "more than $3000")
 
 numeric_rent <- c("estimate","margin_of_error")
@@ -332,7 +348,7 @@ variables$variable_description[variables$variable_name == "DP04_0087"] <- "$500k
 variables$variable_description[variables$variable_name == "DP04_0088"] <- "more than $1m"
 variables$variable_description[variables$variable_name == "DP04_0089"] <- "Median Value"
 
-# Clean up Retn Cost
+# Clean up Rent Cost
 variables$variable_description[variables$variable_name == "DP04_0126"] <- "Occupied Rental Units"
 variables$variable_description[variables$variable_name == "DP04_0127"] <- "< $500"
 variables$variable_description[variables$variable_name == "DP04_0128"] <- "$500 to $1000"
@@ -395,8 +411,31 @@ geography$place_name[geography$place_name == "Snohomish" & geography$place_type 
 ##################################################################################
 census_data <- merge(variable_facts,variables, by="variable_dim_id")
 census_data <- merge(census_data,geography, by="geography_dim_id")
+census_data$place_type <- str_trim(census_data$place_type, "right")
+census_data <- census_data[place_state %in% "WA" & census_product %in% "5yr"]
+census_data <- census_data[place_type %in% c("pl","co","tr")]
 
-# Clean up workspace
+# Columns to Keep for Final Database View
+census_cols <- c("estimate","margin_of_error","estimate_percent","year","variable_name","variable_description","geoid","place_name","place_type")
+census_data <- census_data[,..census_cols]
+
+# Variables to Keep in the Final Database View
+final_variable_names <- c("B08303_001","B08303_002","B08303_003","B08303_004","B08303_005","B08303_006","B08303_007","B08303_008","B08303_009","B08303_010","B08303_011","B08303_012","B08303_013",
+                          "DP02_0015","DP02_0071","DP02_0073","DP02_0075","DP02_0077","DP02_0086",
+                          "DP03_0009","DP03_0018","DP03_0019","DP03_0020","DP03_0021","DP03_0022","DP03_0023","DP03_0024", "DP03_0025",
+                          "DP03_0026","DP03_0027","DP03_0028","DP03_0029","DP03_0030","DP03_0031",
+                          "DP03_0032","DP03_0033","DP03_0034","DP03_0035","DP03_0036","DP03_0037","DP03_0038","DP03_0039","DP03_0040","DP03_0041","DP03_0042","DP03_0043","DP03_0044","DP03_0045",
+                          "DP03_0051","DP03_0052","DP03_0053","DP03_0054","DP03_0055","DP03_0056","DP03_0057","DP03_0058","DP03_0059","DP03_0060","DP03_0061","DP03_0062",
+                          "DP04_0006","DP04_0007","DP04_0008","DP04_0009","DP04_0010","DP04_0011","DP04_0012","DP04_0013","DP04_0014","DP04_0015",
+                          "DP04_0057","DP04_0058","DP04_0059","DP04_0060","DP04_0061",
+                          "DP04_0080","DP04_0081","DP04_0082","DP04_0083","DP04_0084","DP04_0085","DP04_0086","DP04_0087","DP04_0088","DP04_0089",
+                          "DP04_0126","DP04_0127","DP04_0128","DP04_0129","DP04_0130","DP04_0131","DP04_0132","DP04_0133","DP04_0134","DP04_0135",
+                          "DP05_0001","DP05_0005","DP05_0006","DP05_0007","DP05_0008","DP05_0009","DP05_0010","DP05_0011","DP05_0012","DP05_0013","DP05_0014","DP05_0015","DP05_0016","DP05_0017","DP05_0018",
+                          "DP05_0063","DP05_0064","DP05_0065","DP05_0066","DP05_0067","DP05_0068","DP05_0069")
+
+census_data <- census_data[variable_name %in% final_variable_names]
+
+# Clean up R workspace
 rm("geography_dim","variable_dim","variable_facts","geography","variables") 
 
 ##################################################################################
@@ -405,38 +444,30 @@ rm("geography_dim","variable_dim","variable_facts","geography","variables")
 ##################################################################################
 ##################################################################################
 
-# Trim data to Washington and Get a Clean list of places for analysis
-wa_places <- census_data[place_state %in% "WA" & census_product %in% "5yr"]
-wa_places$place_type <- str_trim(wa_places$place_type, "right")
-wa_places <- wa_places[place_type %in% c("pl","co")]
-only_places <- wa_places[place_type %in% c("pl")]
+# Find Unique Lists of Groups for dropdowns
+modes <- census_data[variable_name %in% c("DP03_0019","DP03_0020","DP03_0021","DP03_0022","DP03_0023","DP03_0024")]
+disabled <- census_data[variable_name %in% c("DP02_0073","DP02_0075","DP02_0077","DP02_0071")]
+race <- census_data[variable_name %in% c("DP05_0064","DP05_0065","DP05_0066","DP05_0067","DP05_0068","DP05_0069")]
 
-# Find Unique List of Modes
-modes <- wa_places[variable_category %in% "COMMUTING TO WORK"]
-modes <- modes[variable_description != "Workers 16+"]
-modes <- modes[variable_description != "Mean Travel Time to Work"]
-
-# Find Unique List of Disability Groups
-disabled <- wa_places[variable_name %in% c("DP02_0073","DP02_0075","DP02_0077","DP02_0071")]
-race <- wa_places[variable_name %in% c("DP05_0064","DP05_0065","DP05_0066","DP05_0067","DP05_0068","DP05_0069")]
-
-data_years <- unique(wa_places$year)
-data_places <- sort(unique(wa_places$place_name))
+data_years <- unique(census_data$year)
+data_places <- sort(unique(census_data$place_name))
 data_modes <- unique(modes$variable_description)
 data_disability <- unique(disabled$variable_description)
 data_race <- unique(race$variable_description)
+
+# Placeholder until i remove all reference to Wa Places
+wa_places <- census_data
 
 ##################################################################################
 ##################################################################################
 ### Cleaned tract table from Database used in App
 ##################################################################################
 ##################################################################################
-cols_to_keep <- c("year","variable_name","variable_description","estimate","estimate_percent","geoid")
-wa_tracts <- census_data[place_state %in% "WA" & census_product %in% "5yr" & place_type %in% "tr "]
-all_tracts <- census_data[place_state %in% "WA" & census_product %in% "5yr" & place_type %in% "tr " & variable_category %in% "COMMUTING TO WORK"]
 
+cols_to_keep <- c("year","variable_name","variable_description","estimate","estimate_percent","geoid")
+wa_tracts <- census_data[place_type %in% "tr"]
 wa_tracts <- wa_tracts[,..cols_to_keep]
-all_tracts <- all_tracts[,..cols_to_keep]
+
 ##################################################################################
 ##################################################################################
 ### Travel Time table items

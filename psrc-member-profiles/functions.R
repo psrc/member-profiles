@@ -21,6 +21,20 @@ table_from_db <- function(srv_nm,db_nm,tbl_nm) {
   return(w_tbl)
 }
 
+stored_procedure_from_db <- function(srv_nm,db_nm,procedure_nm) {
+  db_con <- dbConnect(odbc::odbc(),
+                      driver = "SQL Server",
+                      server = srv_nm,
+                      database = db_nm,
+                      trusted_connection = "yes"
+  )
+  
+  w_tbl <- DBI::dbGetQuery(db_con, procedure_nm)
+  odbc::dbDisconnect(db_con)
+  setDT(w_tbl)
+  return(w_tbl)
+}
+
 table_cleanup <- function(w_tbl,curr_cols,upd_cols) {
   w_tbl <-w_tbl[,..curr_cols]
   setnames(w_tbl,upd_cols)  
@@ -425,7 +439,7 @@ create_tract_map_pick_variable <- function(w_tbl, w_var, w_yr, w_color, w_place,
   interim <- intersect(tract.shape, city)
   tract_ids <- unique(interim$GEOID10)
   
-  tracts.trimmed <- tract.shape[which(tract.shape$GEOID10 %in% tract_ids),]
+  tracts.trimmed <- tract.shape[which(tract.shape$GEOID %in% tract_ids),]
   current_value  <- sp::merge(tracts.trimmed, current_tbl, by.x = "GEOID10", by.y = "geoid")
   
   # Determine Bins
