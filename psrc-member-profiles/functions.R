@@ -42,13 +42,13 @@ table_cleanup <- function(w_tbl,curr_cols,upd_cols) {
 }
 
 return_estimate <- function(wrk_tbl,wrk_plc,wrk_yr,wrk_var, wrk_val, wrk_dec) {
-  wrk_result <- format(as.numeric(wrk_tbl[place_name %in% wrk_plc & year %in% wrk_yr & variable_name %in% wrk_var,sum(get(wrk_val))]), nsmall = wrk_dec, big.mark = ",")
+  wrk_result <- format(as.numeric(wrk_tbl[geog_name %in% wrk_plc & census_year %in% wrk_yr & variable_name %in% wrk_var,sum(get(wrk_val))]), nsmall = wrk_dec, big.mark = ",")
   return(wrk_result)
 }
 
 create_summary_table <- function(w_tbl,w_plc,w_yr,w_cat,w_var,w_cols,w_tot,w_rem,w_ord) {
   # Subset the table and add a share of the total results
-  tbl <- w_tbl[place_name %in% w_plc & year %in% w_yr & get(w_cat) %in% w_var]
+  tbl <- w_tbl[geog_name %in% w_plc & census_year %in% w_yr & get(w_cat) %in% w_var]
   tbl <- tbl[,..w_cols]
   
   # First Remove any extraneous columns if w_remove is not NULL
@@ -66,7 +66,7 @@ create_summary_table <- function(w_tbl,w_plc,w_yr,w_cat,w_var,w_cols,w_tot,w_rem
   tbl <- tbl[order(variable_description),]
   
   # Calculate Regional Shares for comparison
-  r_tbl <- w_tbl[place_name %in% c("King County","Kitsap County", "Pierce County", "Snohomish County") & year %in% w_yr & get(w_cat) %in% w_var]
+  r_tbl <- w_tbl[geog_name %in% c("King County","Kitsap County", "Pierce County", "Snohomish County") & census_year %in% w_yr & get(w_cat) %in% w_var]
   r_tbl <- r_tbl[,..w_cols]
   
   # First Remove any extraneous columns if w_remove is not NULL
@@ -426,9 +426,9 @@ create_congestion_map <- function(w_place, w_hr, w_yr, w_mo) {
 }
 
 create_tract_map_pick_variable <- function(w_tbl, w_var, w_yr, w_color, w_place, w_type, w_var_type, w_title, w_pre, w_suff) {
-  
+
   # Trim full Tract table to Variable and Year of interest
-  current_tbl <- w_tbl[year %in% w_yr & get(w_var_type) %in% w_var]
+  current_tbl <- w_tbl[census_year %in% w_yr & get(w_var_type) %in% w_var & place_type %in% "tr"]
   cols <- c("geoid",w_type)
   current_tbl <- current_tbl[,..cols]
   setnames(current_tbl,c("geoid","value"))

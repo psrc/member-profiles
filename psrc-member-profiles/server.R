@@ -19,36 +19,36 @@ shinyServer(function(input, output) {
     })
     
     output$Population <- renderText({
-        paste("Population: ", return_estimate(wa_places, input$Place, input$Year, "DP02_0086","estimate",0))
+        paste("Population: ", return_estimate(census_data, input$Place, input$Year, "DP02_0086","estimate",0))
     })
     
     output$MedianAge <- renderText({
-        paste("Median Age: ", return_estimate(wa_places, input$Place, input$Year, "DP05_0018","estimate",1))
+        paste("Median Age: ", return_estimate(census_data, input$Place, input$Year, "DP05_0018","estimate",1))
     })
     
     output$MedianIncome <- renderText({
-        paste("Median HH Income: $", return_estimate(wa_places, input$Place, input$Year, "DP03_0062","estimate",0))
+        paste("Median HH Income: $", return_estimate(census_data, input$Place, input$Year, "DP03_0062","estimate",0))
     })
     
     output$AvgHHSize <- renderText({
-        paste("Average HH Size: ", return_estimate(wa_places, input$Place, input$Year, "DP02_0015","estimate",2))
+        paste("Average HH Size: ", return_estimate(census_data, input$Place, input$Year, "DP02_0015","estimate",2))
     })
     
     output$UnempRate <- renderText({
-        paste("Unemployment Rate: ", return_estimate(wa_places, input$Place, input$Year, "DP03_0009","estimate_percent",1),"%")
+        paste("Unemployment Rate: ", return_estimate(census_data, input$Place, input$Year, "DP03_0009","estimate_percent",1),"%")
     })
     
     output$AvgTT <- renderText({
-        paste("Travel Time to Work: ", return_estimate(wa_places, input$Place, input$Year, "DP03_0025","estimate",1), " minutes")
+        paste("Travel Time to Work: ", return_estimate(census_data, input$Place, input$Year, "DP03_0025","estimate",1), " minutes")
     })
     
     output$table_ms <- DT::renderDataTable({
-        datatable(create_summary_table(wa_places,input$Place,input$Year,"variable_name",ms_var,ms_cols,ms_total,ms_remove,ms_order),rownames = FALSE, options = list(pageLength = mode_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_ms, "", digits = 0) %>% formatPercentage(percent_ms, 1)
+        datatable(create_summary_table(census_data,input$Place,input$Year,"variable_name",ms_var,ms_cols,ms_total,ms_remove,ms_order),rownames = FALSE, options = list(pageLength = mode_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_ms, "", digits = 0) %>% formatPercentage(percent_ms, 1)
     })
     
     output$plot_ms <- renderPlotly({
         ggplotly(
-            ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"variable_name",ms_var,ms_cols,ms_total,ms_remove,ms_order), 
+            ggplot(data=create_summary_table(census_data,input$Place,input$Year,"variable_name",ms_var,ms_cols,ms_total,ms_remove,ms_order), 
                    aes(x=`variable_description`, 
                        y=`Share`,
                        text= paste0("<b>", "% of Total Commuters: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
@@ -73,12 +73,12 @@ shinyServer(function(input, output) {
     })
     
     output$table_tt <- DT::renderDataTable({
-        datatable(create_summary_table(wa_places,input$Place,input$Year,"variable_name",tt_var, tt_cols,tt_total,tt_remove,tt_order),rownames = FALSE, options = list(pageLength = tt_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_tt, "", digits = 0) %>% formatPercentage(percent_tt, 1)
+        datatable(create_summary_table(census_data,input$Place,input$Year,"variable_name",tt_var, tt_cols,tt_total,tt_remove,tt_order),rownames = FALSE, options = list(pageLength = tt_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_tt, "", digits = 0) %>% formatPercentage(percent_tt, 1)
     })
     
     output$plot_tt <- renderPlotly({
         ggplotly(
-            ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"variable_name",tt_var, tt_cols,tt_total,tt_remove,tt_order), 
+            ggplot(data=create_summary_table(census_data,input$Place,input$Year,"variable_name",tt_var, tt_cols,tt_total,tt_remove,tt_order), 
                    aes(x=`variable_description`, 
                        y=`Share`,
                        text= paste0("<b>", "% of Total Commuters: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
@@ -183,7 +183,7 @@ shinyServer(function(input, output) {
     
     output$plot_occupation <- renderPlotly({
         ggplotly(
-            ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"variable_name",occ_var,occ_cols,occ_total,occ_remove,occ_order), 
+            ggplot(data=create_summary_table(census_data,input$Place,input$Year,"variable_name",occ_var,occ_cols,occ_total,occ_remove,occ_order), 
                    aes(x=`variable_description`, 
                        y=`Share`,
                        text= paste0("<b>", "% of Total Workers: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
@@ -207,7 +207,7 @@ shinyServer(function(input, output) {
     
     output$plot_industry <- renderPlotly({
         ggplotly(
-            ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"variable_name",ind_var,ind_cols,ind_total,ind_remove,ind_order), 
+            ggplot(data=create_summary_table(census_data,input$Place,input$Year,"variable_name",ind_var,ind_cols,ind_total,ind_remove,ind_order), 
                    aes(x=`variable_description`, 
                        y=`Share`,
                        text= paste0("<b>", "% of Total Workers: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
@@ -229,7 +229,7 @@ shinyServer(function(input, output) {
     
     output$plot_income <- renderPlotly({
         ggplotly(
-            ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"variable_name",inc_var,inc_cols,inc_total,inc_remove,inc_order), 
+            ggplot(data=create_summary_table(census_data,input$Place,input$Year,"variable_name",inc_var,inc_cols,inc_total,inc_remove,inc_order), 
                    aes(x=`variable_description`, 
                        y=`Share`,
                        text= paste0("<b>", "% of Total Households: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
@@ -250,24 +250,24 @@ shinyServer(function(input, output) {
     })
     
     output$table_occupation <- DT::renderDataTable({
-        datatable(create_summary_table(wa_places,input$Place,input$Year,"variable_name",occ_var,occ_cols,occ_total,occ_remove,occ_order),rownames = FALSE, options = list(pageLength = job_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_jobs, "", digits = 0) %>% formatPercentage(percent_jobs, 1)
+        datatable(create_summary_table(census_data,input$Place,input$Year,"variable_name",occ_var,occ_cols,occ_total,occ_remove,occ_order),rownames = FALSE, options = list(pageLength = job_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_jobs, "", digits = 0) %>% formatPercentage(percent_jobs, 1)
     })
     
     output$table_industry <- DT::renderDataTable({
-        datatable(create_summary_table(wa_places,input$Place,input$Year,"variable_name",ind_var,ind_cols,ind_total,ind_remove,ind_order),rownames = FALSE, options = list(pageLength = job_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_jobs, "", digits = 0) %>% formatPercentage(percent_jobs, 1)
+        datatable(create_summary_table(census_data,input$Place,input$Year,"variable_name",ind_var,ind_cols,ind_total,ind_remove,ind_order),rownames = FALSE, options = list(pageLength = job_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_jobs, "", digits = 0) %>% formatPercentage(percent_jobs, 1)
     })
     
     output$table_income <- DT::renderDataTable({
-        datatable(create_summary_table(wa_places,input$Place,input$Year,"variable_name",inc_var,inc_cols,inc_total,inc_remove,inc_order),rownames = FALSE, options = list(pageLength = job_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_jobs, "", digits = 0) %>% formatPercentage(percent_jobs, 1)
+        datatable(create_summary_table(census_data,input$Place,input$Year,"variable_name",inc_var,inc_cols,inc_total,inc_remove,inc_order),rownames = FALSE, options = list(pageLength = job_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_jobs, "", digits = 0) %>% formatPercentage(percent_jobs, 1)
     })
     
     output$table_housing <- DT::renderDataTable({
-        datatable(create_summary_table(wa_places,input$Place,input$Year,"variable_name",hs_var, hs_cols,hs_total,hs_remove,hs_order),rownames = FALSE, options = list(pageLength = house_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_hs, "", digits = 0) %>% formatPercentage(percent_hs, 1)
+        datatable(create_summary_table(census_data,input$Place,input$Year,"variable_name",hs_var, hs_cols,hs_total,hs_remove,hs_order),rownames = FALSE, options = list(pageLength = house_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_hs, "", digits = 0) %>% formatPercentage(percent_hs, 1)
     })
     
     output$plot_housing <- renderPlotly({
         ggplotly(
-            ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"variable_name",hs_var, hs_cols,hs_total,hs_remove,hs_order), 
+            ggplot(data=create_summary_table(census_data,input$Place,input$Year,"variable_name",hs_var, hs_cols,hs_total,hs_remove,hs_order), 
                    aes(x=`variable_description`, 
                        y=`Share`,
                        text= paste0("<b>", "% of Total Housing Units: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
@@ -288,12 +288,12 @@ shinyServer(function(input, output) {
     })
  
     output$table_vehicles <- DT::renderDataTable({
-        datatable(create_summary_table(wa_places,input$Place,input$Year,"variable_name",va_var, va_cols,va_total,va_remove,va_order),rownames = FALSE, options = list(pageLength = va_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_va, "", digits = 0) %>% formatPercentage(percent_va, 1)
+        datatable(create_summary_table(census_data,input$Place,input$Year,"variable_name",va_var, va_cols,va_total,va_remove,va_order),rownames = FALSE, options = list(pageLength = va_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_va, "", digits = 0) %>% formatPercentage(percent_va, 1)
     })
     
     output$plot_vehicles <- renderPlotly({
         ggplotly(
-            ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"variable_name",va_var, va_cols,va_total,va_remove,va_order), 
+            ggplot(data=create_summary_table(census_data,input$Place,input$Year,"variable_name",va_var, va_cols,va_total,va_remove,va_order), 
                    aes(x=`variable_description`, 
                        y=`Share`,
                        text= paste0("<b>", "% of Total Occupied Units: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
@@ -314,12 +314,12 @@ shinyServer(function(input, output) {
     })  
 
     output$table_homevalue <- DT::renderDataTable({
-        datatable(create_summary_table(wa_places,input$Place,input$Year,"variable_name",hv_var, hv_cols,hv_total,hv_remove,hv_order),rownames = FALSE, options = list(pageLength = hv_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_hv, "", digits = 0) %>% formatPercentage(percent_hv, 1)
+        datatable(create_summary_table(census_data,input$Place,input$Year,"variable_name",hv_var, hv_cols,hv_total,hv_remove,hv_order),rownames = FALSE, options = list(pageLength = hv_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_hv, "", digits = 0) %>% formatPercentage(percent_hv, 1)
     })
     
     output$plot_homevalue <- renderPlotly({
         ggplotly(
-            ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"variable_name",hv_var, hv_cols,hv_total,hv_remove,hv_order), 
+            ggplot(data=create_summary_table(census_data,input$Place,input$Year,"variable_name",hv_var, hv_cols,hv_total,hv_remove,hv_order), 
                    aes(x=`variable_description`, 
                        y=`Share`,
                        text= paste0("<b>", "% of Owner Occupied Units: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
@@ -340,12 +340,12 @@ shinyServer(function(input, output) {
     })    
 
     output$table_monthlyrent <- DT::renderDataTable({
-        datatable(create_summary_table(wa_places,input$Place,input$Year,"variable_name",rent_var, rent_cols,rent_total,rent_remove,rent_order),rownames = FALSE, options = list(pageLength = rent_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_rent, "", digits = 0) %>% formatPercentage(percent_rent, 1)
+        datatable(create_summary_table(census_data,input$Place,input$Year,"variable_name",rent_var, rent_cols,rent_total,rent_remove,rent_order),rownames = FALSE, options = list(pageLength = rent_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_rent, "", digits = 0) %>% formatPercentage(percent_rent, 1)
     })
     
     output$plot_monthlyrent <- renderPlotly({
         ggplotly(
-            ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"variable_name",rent_var, rent_cols,rent_total,rent_remove,rent_order), 
+            ggplot(data=create_summary_table(census_data,input$Place,input$Year,"variable_name",rent_var, rent_cols,rent_total,rent_remove,rent_order), 
                    aes(x=`variable_description`, 
                        y=`Share`,
                        text= paste0("<b>", "% of Rental Occupied Units: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
@@ -366,12 +366,12 @@ shinyServer(function(input, output) {
     })     
 
     output$table_age <- DT::renderDataTable({
-        datatable(create_summary_table(wa_places,input$Place,input$Year,"variable_name",age_var,age_cols,age_total,age_remove,age_order),rownames = FALSE, options = list(pageLength = age_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_age, "", digits = 0) %>% formatPercentage(percent_age, 1)
+        datatable(create_summary_table(census_data,input$Place,input$Year,"variable_name",age_var,age_cols,age_total,age_remove,age_order),rownames = FALSE, options = list(pageLength = age_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_age, "", digits = 0) %>% formatPercentage(percent_age, 1)
     })
     
     output$plot_age <- renderPlotly({
         ggplotly(
-            ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"variable_name",age_var,age_cols,age_total,age_remove,age_order), 
+            ggplot(data=create_summary_table(census_data,input$Place,input$Year,"variable_name",age_var,age_cols,age_total,age_remove,age_order), 
                    aes(x=`variable_description`, 
                        y=`Share`,
                        text= paste0("<b>", "% of Total Population: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
@@ -398,12 +398,12 @@ shinyServer(function(input, output) {
     )
 
     output$table_race <- DT::renderDataTable({
-        datatable(create_summary_table(wa_places,input$Place,input$Year,"variable_name",race_var,race_cols,race_total,race_remove,race_order),rownames = FALSE, options = list(pageLength = race_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_race, "", digits = 0) %>% formatPercentage(percent_race, 1)
+        datatable(create_summary_table(census_data,input$Place,input$Year,"variable_name",race_var,race_cols,race_total,race_remove,race_order),rownames = FALSE, options = list(pageLength = race_length, columnDefs = list(list(className = 'dt-center', targets =1:4)))) %>% formatCurrency(numeric_race, "", digits = 0) %>% formatPercentage(percent_race, 1)
     })
     
     output$plot_race <- renderPlotly({
         ggplotly(
-            ggplot(data=create_summary_table(wa_places,input$Place,input$Year,"variable_name",race_var,race_cols,race_total,race_remove,race_order), 
+            ggplot(data=create_summary_table(census_data,input$Place,input$Year,"variable_name",race_var,race_cols,race_total,race_remove,race_order), 
                    aes(x=`variable_description`, 
                        y=`Share`,
                        text= paste0("<b>", "% of Total Population: ","</b>",prettyNum(round(`Share`*100, 1), big.mark = ","),"%")
@@ -423,19 +423,19 @@ shinyServer(function(input, output) {
             ,tooltip = c("text"))
     })
     
-    output$monthlyrent_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, "DP04_0134",input$Year, "Blues", input$Place, "estimate", "variable_name", "Median Rent", "$","")})
+    output$monthlyrent_map <- renderLeaflet({create_tract_map_pick_variable(census_data, "DP04_0134",input$Year, "Blues", input$Place, "estimate", "variable_name", "Median Rent", "$","")})
     
-    output$homevalue_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, "DP04_0089",input$Year, "Blues", input$Place, "estimate", "variable_name", "Median Home Value", "$","")})
+    output$homevalue_map <- renderLeaflet({create_tract_map_pick_variable(census_data, "DP04_0089",input$Year, "Blues", input$Place, "estimate", "variable_name", "Median Home Value", "$","")})
     
-    output$zerocar_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, "DP04_0058",input$Year, "Blues", input$Place, "estimate_percent", "variable_name", "% Zero Car HH's", "","%")})
+    output$zerocar_map <- renderLeaflet({create_tract_map_pick_variable(census_data, "DP04_0058",input$Year, "Blues", input$Place, "estimate_percent", "variable_name", "% Zero Car HH's", "","%")})
     
-    output$traveltime_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, "DP03_0025",input$Year, "Blues", input$Place, "estimate", "variable_name", "Time to Work (minutes)", "","")})
+    output$traveltime_map <- renderLeaflet({create_tract_map_pick_variable(census_data, "DP03_0025",input$Year, "Blues", input$Place, "estimate", "variable_name", "Time to Work (minutes)", "","")})
     
-    output$disability_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, input$Disability, input$Year, "Blues", input$Place, "estimate_percent", "variable_description", "Share of People with a Disability", "","%")})
+    output$disability_map <- renderLeaflet({create_tract_map_pick_variable(census_data, input$Disability, input$Year, "Blues", input$Place, "estimate_percent", "variable_description", "Share of People with a Disability", "","%")})
     
-    output$modeshare_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, input$Mode, input$Year, "Blues", input$Place, "estimate_percent", "variable_description", "Share", "","%")})
+    output$modeshare_map <- renderLeaflet({create_tract_map_pick_variable(census_data, input$Mode, input$Year, "Blues", input$Place, "estimate_percent", "variable_description", "Share", "","%")})
 
-    output$race_map <- renderLeaflet({create_tract_map_pick_variable(wa_tracts, input$Race, input$Year, "Blues", input$Place, "estimate_percent", "variable_description", "Share of Population", "","%")})    
+    output$race_map <- renderLeaflet({create_tract_map_pick_variable(census_data, input$Race, input$Year, "Blues", input$Place, "estimate_percent", "variable_description", "Share of Population", "","%")})    
 
     observeEvent(input$showpanel, {
         
